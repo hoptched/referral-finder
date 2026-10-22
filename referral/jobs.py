@@ -7,6 +7,7 @@ structured by Claude.
 """
 
 import html
+import json
 import re
 from html.parser import HTMLParser
 from typing import Optional
@@ -22,7 +23,7 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Ge
 
 class JobPosting(BaseModel):
     url: str
-    source: str  # smartrecruiters | greenhouse | lever | ashby | linkedin | generic
+    source: str  # smartrecruiters | greenhouse | lever | ashby | workday | linkedin | json-ld | generic
     company: str
     title: str
     department: Optional[str] = None
@@ -32,6 +33,7 @@ class JobPosting(BaseModel):
 
 
 class _Extracted(BaseModel):
+    is_job_posting: bool  # False for login walls, error pages, search results, "you applied" pages
     company: str
     title: str
     department: Optional[str]
@@ -200,9 +202,37 @@ async def _linkedin(url, session_path) -> JobPosting:
     )
 
 
+def _json_ld_posting(url: str, markup: str) -> Optional[JobPosting]:
+    """Read a schema.org JobPosting block, which many career sites embed for Google Jobs.
+    Exact and free, and often the only place the description is (the page itself is JavaScript)."""
+    for block in re.findall(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', markup, re.S | re.I):
+        try:
+            data = json.loads(block.strip())
+        except ValueError:
+            continue
+        items = data if isinstance(data, list) else data.get("@graph", [data])
+        for item in items:
+            types = item.get("@type")
+            if "JobPosting" not in (types if isinstance(types, list) else [types]):
+                continue
+            org = item.get("hiringOrganization") or {}
+            places = item.get("jobLocation") or []
+            places = places if isinstance(places, list) else [places]
+            address = (places[0].get("address") or {}) if places and isinstance(places[0], dict) else {}
+            location = ", ".join(x for x in (address.get("addressLocality"), address.get("addressRegion")) if x) or None
+            title = (item.get("title") or "").strip()
+            company = clean_company(org.get("name") or "") if isinstance(org, dict) else ""
+            if title and company:
+                return JobPosting(url=url, source="json-ld", company=company, title=title, location=location,
+                                  description=html_to_text(html.unescape(item.get("description") or "")))
+    return None
+
+
 async def _generic(http, url, model) -> JobPosting:
     response = await http.get(url, follow_redirects=True)
     response.raise_for_status()
+    if posting := _json_ld_posting(url, response.text):
+        return posting
     text = html_to_text(response.text)
     extracted = await client().messages.parse(
         model=model,
@@ -210,19 +240,26 @@ async def _generic(http, url, model) -> JobPosting:
         output_config={"effort": "low"},
         messages=[{
             "role": "user",
-            "content": "Below is the text of a job posting page. Extract the hiring company, job title, "
-            "department, team, location, and the full job description (responsibilities and "
-            "qualifications, verbatim). Use null for anything not stated.\n\n" + text,
+            "content": "Below is the text of a web page that should be a job posting. First decide "
+            "is_job_posting: true only if the page actually shows a specific job's posting (title plus "
+            "description); false for login pages, error pages, search results, or application-status "
+            "pages. If it is a posting, extract the hiring company, job title, department, team, location, "
+            "and the full job description (responsibilities and qualifications, verbatim). Use null for "
+            "anything not stated; don't guess.\n\n" + text,
         }],
         output_format=_Extracted,
     )
     log_usage("job_page", extracted)
     data = extracted.parsed_output
+    if not data.is_job_posting:
+        # e.g. a careers-site "applied jobs" link that shows a login form.
+        raise ValueError("This page isn't a job posting (it may need a login). Use the job's public "
+                         "posting link, the page you'd share with someone else.")
     if not (data.company.strip() and data.title.strip()):
         # Typically a page rendered by JavaScript, so the HTML has no posting text.
         raise ValueError("Couldn't read the company and job title from this page. Try the job's application "
                          "link (Workday, Greenhouse, Lever, Ashby…) instead.")
-    return JobPosting(url=url, source="generic", **data.model_dump())
+    return JobPosting(url=url, source="generic", **data.model_dump(exclude={"is_job_posting"}))
 
 
 # (host regex, path regex, handler). Host groups, then path groups, are passed to the handler.

@@ -72,6 +72,23 @@ def load_run(run_id: str):
     return json.loads(path.read_text())
 
 
+def outreach_status(run: dict) -> dict:
+    """How far outreach got. "Done" = everyone selected has an email draft or a LinkedIn invite."""
+    selected = run.get("selected", [])
+    drafts, invites, sent = run.get("drafts", {}), run.get("invitations", {}), run.get("sent", {})
+    emails = run.get("emails", {})
+    has_email = {u for u in selected if (emails.get(u) or {}).get("email")}
+    ready = [u for u in selected if u in drafts or u in invites]
+    # Old runs have drafts for people without an email; those count as LinkedIn outreach now.
+    emailed = [u for u in ready if u in drafts and u in has_email]
+    return {
+        "drafted": len(emailed),
+        "invites": len(ready) - len(emailed),
+        "sent": sum(u in sent for u in selected),
+        "done": bool(selected) and len(ready) == len(selected),
+    }
+
+
 def list_runs() -> list[dict]:
     runs = []
     for path in sorted(RUNS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
@@ -83,6 +100,7 @@ def list_runs() -> list[dict]:
             "created_at": data["created_at"],
             "candidates": len(data["candidates"]),
             "selected": len(data["selected"]),
+            "outreach": outreach_status(data),
         })
     return runs
 

@@ -20,7 +20,7 @@ Everything runs on your own computer at `http://localhost:8000`. See [AGENTS.md]
 1. Paste the job link and click **Find alumni**. Progress shows as it goes (about 1–3 minutes; slower the first time for a company, and when new profiles need checking).
 2. The people show up as cards, ranked. Each card has their title, class year, location, whether your school was confirmed on their profile, why they ranked where they did, and a link to their LinkedIn profile.
 3. **Click a card to select it.** Click again to unselect. Selections save immediately.
-4. Past searches are listed on the left. Opening one costs no LinkedIn traffic.
+4. Past searches are listed on the left. Opening one costs no LinkedIn traffic. Searches whose outreach is done (everyone selected has an email draft or a LinkedIn invite) are **green**, with a summary like "✓ 6 emails drafted · 3 LinkedIn · 5 sent". Clicking **Outreach** on a finished search asks for confirmation first.
 5. Open the **Outreach** tab. It's disabled until you've selected someone. Opening it automatically:
    - looks up emails for selected people (Hunter, then Apollo; each method at most once per person, so reopening costs nothing),
    - **drafts emails only for people whose email was found** (Sonnet), and
@@ -212,7 +212,8 @@ That's 2 page loads per person (PersonScraper made ~7), and it keeps working whe
 | `<tenant>.wdN.myworkdayjobs.com/[en-US/]<site>/job/<path>` | `https://<host>/wday/cxs/<tenant>/<site>/job/<path>` (Workday's JSON API) | Public. Company from `hiringOrganization`, with legal suffixes removed ("Zillow Group, Inc." → "Zillow Group"). The page itself is JavaScript-only, so this API is the only way to read it. |
 | `linkedin.com/jobs/...` | `linkedin_scraper` `JobScraper` | Needs `session.json`. |
 | `simplify.jobs/c/...` | rejected | That's a Simplify company page, not a job. Use the job's application link. |
-| anything else | page fetched, converted to text, structured by `models.extract` | Fails with a clear error if no company/title can be read (JavaScript-only pages), instead of continuing with blanks. |
+| anything else, with a schema.org `JobPosting` block | that JSON-LD block (exact, free) | Many career sites embed it for Google Jobs; often the only place the description is (e.g. jobs.aon.com). |
+| anything else | page fetched, converted to text, structured by `models.extract` | Claude first decides whether the page is a job posting at all; login walls, error pages and "applied jobs" pages are rejected with a clear message. Also fails clearly if no company/title can be read. |
 
 ## How alumni search works
 

@@ -46,6 +46,9 @@
   .runs li { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
   .runs li:hover { background: var(--chip); }
   .runs li.active { background: var(--accent-soft); }
+  .runs li.done { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+  .runs li.done.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+  .runs .done-note { color: var(--ok); font-size: 13px; font-weight: 600; }
   .runs .co { font-weight: 600; }
   .runs .meta { color: var(--muted); font-size: 13px; }
 
@@ -173,12 +176,35 @@ async function loadRuns() {
   const runs = await api("/api/runs");
   const list = $("#runs");
   list.replaceChildren(...runs.map(r => el("li",
-    { class: current && current.id === r.id ? "active" : "", onclick: () => openRun(r.id) },
+    { class: [current && current.id === r.id ? "active" : "", r.outreach.done ? "done" : ""].join(" ").trim(),
+      onclick: () => openRun(r.id) },
     el("div", { class: "co" }, r.company),
     el("div", { class: "meta" }, r.title),
     el("div", { class: "meta" }, `${r.candidates} alumni · ${r.selected} selected`),
+    r.outreach.done ? el("div", { class: "done-note" }, outreachSummary(r.outreach)) : null,
   )));
   if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
+}
+
+// Mirrors store.outreach_status() for the run on screen.
+function outreachStatus(run) {
+  const sel = run.selected || [], d = run.drafts || {}, inv = run.invitations || {}, sent = run.sent || {};
+  const em = run.emails || {};
+  const ready = sel.filter(u => u in d || u in inv);
+  const emailed = ready.filter(u => u in d && em[u] && em[u].email);
+  return {
+    drafted: emailed.length,
+    invites: ready.length - emailed.length,
+    sent: sel.filter(u => u in sent).length,
+    done: sel.length > 0 && sel.every(u => u in d || u in inv),
+  };
+}
+
+function outreachSummary(o) {
+  const parts = [`${o.drafted} email${o.drafted === 1 ? "" : "s"} drafted`];
+  if (o.invites) parts.push(`${o.invites} LinkedIn`);
+  if (o.sent) parts.push(`${o.sent} sent`);
+  return "✓ " + parts.join(" · ");
 }
 
 async function openRun(id) {
@@ -210,7 +236,14 @@ function renderRun() {
       `People (${candidates.length})`),
     el("button", { class: "tab" + (tab === "outreach" ? " on" : ""), id: "outreach-tab",
                    disabled: chosen.size ? null : "", title: chosen.size ? "" : "Select people first",
-                   onclick: () => openOutreach() }, `Outreach (${chosen.size})`),
+                   onclick: () => {
+                     const o = outreachStatus(current.data);
+                     // Already prepared: ask before reopening, so a finished job isn't redone by accident.
+                     if (tab !== "outreach" && o.done &&
+                         !confirm(`Outreach is already done for this job (${outreachSummary(o).slice(2)}).\n\nOpen it again? ` +
+                                  "Only missing work runs (new selections); nobody already emailed gets a second email.")) return;
+                     openOutreach();
+                   } }, `Outreach (${chosen.size})`),
   );
   let body;
   if (tab === "people") {

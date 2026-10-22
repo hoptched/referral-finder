@@ -48,3 +48,18 @@ def test_html_to_text():
     assert "x()" not in text
     assert "- One" in text and "- Two" in text
     assert text.startswith("Hi there")
+
+
+def test_json_ld_posting():
+    from referral.jobs import _json_ld_posting
+
+    page = """<html><head><script type="application/ld+json">
+    {"@context": "https://schema.org", "@type": "JobPosting", "title": "AI Engineer Intern",
+     "hiringOrganization": {"@type": "Organization", "name": "Acme Corp"},
+     "jobLocation": {"@type": "Place", "address": {"addressLocality": "Chicago", "addressRegion": "IL"}},
+     "description": "&lt;p&gt;Build things.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Python&lt;/li&gt;&lt;/ul&gt;"}
+    </script></head><body>Loading…</body></html>"""
+    p = _json_ld_posting("https://jobs.acme.com/1", page)
+    assert (p.source, p.title, p.company, p.location) == ("json-ld", "AI Engineer Intern", "Acme", "Chicago, IL")
+    assert "Build things." in p.description and "- Python" in p.description
+    assert _json_ld_posting("https://x", "<html><body>Log into your account</body></html>") is None
