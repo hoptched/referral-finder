@@ -1,6 +1,7 @@
 """Command-line entry point: `refer <command>`."""
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -183,6 +184,61 @@ def gmail_login(
         return
     account = gmail.finish_login(finish)
     console.print(f"[green]Gmail connected as {account}. Token saved to {gmail.TOKEN_PATH}[/green]")
+
+
+@app.command("setup-check")
+def setup_check():
+    """Check that everything needed to run is in place, and say how to fix what isn't."""
+    import os
+
+    from referral import gmail
+    from referral.config import ROOT
+
+    rows: list[tuple[str, bool, str]] = []  # (item, ok, how to fix / detail)
+    env = ROOT / ".env"
+    rows.append((".env file", env.exists(), "cp .env.example .env, then fill in the keys"))
+    rows.append(("ANTHROPIC_API_KEY", bool(os.environ.get("ANTHROPIC_API_KEY")), "required: console.anthropic.com → API keys"))
+    hunter, apollo = bool(os.environ.get("HUNTER_API_KEY")), bool(os.environ.get("APOLLO_API_KEY"))
+    rows.append(("HUNTER_API_KEY", hunter, "optional: hunter.io → API (email lookup)"))
+    rows.append(("APOLLO_API_KEY", apollo, "optional: apollo.io → Settings → Integrations → API"))
+    cfg = None
+    try:
+        cfg = load_config()
+        rows.append(("config.yaml", True, ""))
+    except FileNotFoundError:
+        rows.append(("config.yaml", False, "cp config.example.yaml config.yaml, then edit the me: section"))
+    if cfg:
+        me = cfg.get("me", {})
+        placeholder = me.get("name") == "Alex Doe"
+        rows.append(("config.yaml me: filled in", not placeholder, "replace the example name/email with yours"))
+        resume = project_path(me.get("resume_path", "resume.pdf"))
+        rows.append((f"resume ({resume.name})", resume.exists(), f"put your resume PDF at {resume}"))
+        session = project_path(cfg["linkedin"]["session_path"])
+        rows.append(("LinkedIn login (session.json)", session.exists(), "run: refer login"))
+    rows.append(("template.md", project_path("template.md").exists(),
+                 "optional: cp template.example.md template.md (the example is used until then)"))
+    browsers = Path.home() / ".cache" / "ms-playwright"
+    rows.append(("Playwright Chromium", any(browsers.glob("chromium*")), "run: .venv/bin/playwright install chromium"))
+    rows.append(("Gmail credentials.json", gmail.CREDENTIALS_PATH.exists(), "optional: see README → Gmail setup"))
+    status = gmail.status()
+    rows.append(("Gmail login", status["connected"], status["error"] or "optional: refer gmail-login"))
+
+    required = {".env file", "ANTHROPIC_API_KEY", "config.yaml", "config.yaml me: filled in", "LinkedIn login (session.json)",
+                "Playwright Chromium"}
+    table = Table(show_header=True)
+    for col in ("", "Item", "How to fix"):
+        table.add_column(col)
+    for item, ok, fix in rows:
+        mark = "[green]✓[/green]" if ok else ("[red]✗[/red]" if item in required or item.startswith("resume") else "[yellow]–[/yellow]")
+        table.add_row(mark, item, "" if ok else fix)
+    console.print(table)
+    if not (hunter or apollo):
+        console.print("[yellow]No email source set: everyone will get a LinkedIn invite instead of an email.[/yellow]")
+    missing = [i for i, ok, _ in rows if not ok and (i in required or i.startswith("resume"))]
+    if missing:
+        console.print(f"[red]Not ready: {', '.join(missing)}[/red]")
+        raise typer.Exit(1)
+    console.print("[green]Ready. Run: refer web[/green]")
 
 
 @app.command()

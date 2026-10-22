@@ -472,12 +472,13 @@ async function loadCredits() {
     el("span", { class: "r", title: title || "" }, resets));
 
   // Hunter and Apollo shown as one pool: roughly one credit per email lookup.
-  const hunterOk = !c.hunter.error;
+  const hunterOk = c.hunter.enabled && !c.hunter.error;
   const left = Math.floor((hunterOk ? c.hunter.left : 0) + (c.apollo.enabled ? c.apollo.left : 0));
   const total = (hunterOk ? c.hunter.limit : 0) + (c.apollo.enabled ? c.apollo.limit : 0);
   const resets = [hunterOk ? `Hunter ${short(c.hunter.resets)}` : null,
                   c.apollo.enabled ? `Apollo ${short(c.apollo.resets)}` : null].filter(Boolean).join(" · ");
-  const breakdown = (hunterOk ? `Hunter ${c.hunter.left}/${c.hunter.limit}` : `Hunter unavailable (${c.hunter.error})`) +
+  const breakdown = (hunterOk ? `Hunter ${c.hunter.left}/${c.hunter.limit}`
+                     : c.hunter.enabled ? `Hunter unavailable (${c.hunter.error})` : "Hunter off (no key)") +
     (c.apollo.enabled ? ` · Apollo ${c.apollo.left}/${c.apollo.limit}` : " · Apollo off");
   row("Email credits", `${left} / ${total}`, left < 10, resets, breakdown);
   row("LinkedIn", `${c.linkedin.left} / ${c.linkedin.limit}`, c.linkedin.left < 8, "midnight",

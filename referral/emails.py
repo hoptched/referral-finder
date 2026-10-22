@@ -193,6 +193,10 @@ APOLLO_USAGE = project_path(".data/apollo_usage.json")
 APOLLO_OK_CONFIDENCE = {"high", "medium"}
 
 
+def hunter_enabled() -> bool:
+    return bool(os.environ.get("HUNTER_API_KEY"))
+
+
 def apollo_enabled() -> bool:
     return bool(os.environ.get("APOLLO_API_KEY"))
 

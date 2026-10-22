@@ -18,7 +18,7 @@ from referral.compose import compose, job_names, render_invitation
 from referral.llm import usage_entries
 from referral.config import load_config, project_path, school_short
 from referral import gmail
-from referral.emails import (EmailResult, HunterBudget, apollo_cycle, apollo_enabled, apollo_used_this_cycle, find_email,
+from referral.emails import (EmailResult, HunterBudget, apollo_cycle, apollo_enabled, hunter_enabled, apollo_used_this_cycle, find_email,
                              find_email_apollo, guess_email, infer_pattern, tried_methods)
 from referral.jobs import parse_job
 from referral.pipeline import find_candidates, write_run
@@ -118,8 +118,9 @@ async def set_selected(run_id: str, body: Selection):
 
 
 def _methods() -> list[str]:
-    guess = load_config()["hunter"].get("guess_emails", False)
-    return ["hunter"] + (["apollo"] if apollo_enabled() else []) + (["pattern"] if guess else [])
+    # Each source only if its key is set; guessing needs Hunter's verifier.
+    guess = hunter_enabled() and load_config()["hunter"].get("guess_emails", False)
+    return (["hunter"] if hunter_enabled() else []) + (["apollo"] if apollo_enabled() else []) + (["pattern"] if guess else [])
 
 
 @app.post("/api/runs/{run_id}/emails")
@@ -204,10 +205,13 @@ async def credits():
     """Everything the header's credit panel shows. Each part fails independently."""
     cfg = load_config()
     out = {}
-    try:
-        out["hunter"] = await HunterBudget(cfg["hunter"]["monthly_credit_limit"]).status()
-    except Exception as e:
-        out["hunter"] = {"error": f"{type(e).__name__}: {e}"}
+    if not hunter_enabled():
+        out["hunter"] = {"enabled": False}
+    else:
+        try:
+            out["hunter"] = {"enabled": True, **await HunterBudget(cfg["hunter"]["monthly_credit_limit"]).status()}
+        except Exception as e:
+            out["hunter"] = {"enabled": True, "error": f"{type(e).__name__}: {e}"}
     limit = cfg.get("apollo", {}).get("monthly_credit_limit", 50)
     out["apollo"] = {"enabled": apollo_enabled(), "used": apollo_used_this_cycle(), "limit": limit,
                      "left": max(limit - apollo_used_this_cycle(), 0), "resets": apollo_cycle()[1].isoformat()}

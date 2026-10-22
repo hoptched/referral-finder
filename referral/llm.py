@@ -15,7 +15,9 @@ PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.00, 10.00), 
 
 
 def client() -> anthropic.AsyncAnthropic:
-    # The key isn't workspace-scoped, so every request must name the workspace.
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        raise RuntimeError("ANTHROPIC_API_KEY is missing. Add it to .env (see .env.example).")
+    # Keys not scoped to a workspace must name one on every request.
     headers = {}
     if workspace := os.environ.get("ANTHROPIC_WORKSPACE_ID"):
         headers["anthropic-workspace-id"] = workspace
