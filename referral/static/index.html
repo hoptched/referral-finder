@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Referral Finder</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #e2e5ea;
+    --accent: #b31b1b; --accent-soft: #fbeaea; --ok: #1f7a3d; --bad: #b3261e; --chip: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --panel: #1b1e23; --text: #e7e9ec; --muted: #9aa3ae; --line: #2c3138;
+      --accent: #e0574f; --accent-soft: #3a1f1f; --ok: #5cc27d; --bad: #f08a83; --chip: #262a31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 24px 0; max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between;
+           align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .credits { display: grid; grid-template-columns: auto auto auto; gap: 2px 12px; font-size: 13px; background: var(--panel);
+             border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .credits .k { color: var(--muted); }
+  .credits .v { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .credits .low { color: var(--bad); }
+  .credits .r { color: var(--muted); font-size: 12px; }
+  .credits .hdr { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0; }
+  main { display: grid; grid-template-columns: 240px 1fr; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 20px 24px 48px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+
+  form { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
+  form .inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  #company-url { font-size: 13px; padding: 7px 12px; }
+  input[type=url] { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+                    background: var(--panel); color: var(--text); font: inherit; min-width: 0; }
+  button { padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+           font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  aside h2, section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  .runs { list-style: none; padding: 0; margin: 0; }
+  .runs li { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  .runs li:hover { background: var(--chip); }
+  .runs li.active { background: var(--accent-soft); }
+  .runs .co { font-weight: 600; }
+  .runs .meta { color: var(--muted); font-size: 13px; }
+
+  .log { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px;
+         font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+  .log div:last-child { color: var(--text); }
+  .error { color: var(--bad); }
+
+  .job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px;
+         display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .job .title { font-weight: 600; }
+  .job a { color: var(--accent); }
+  .count { font-weight: 600; white-space: nowrap; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 12px 14px;
+          cursor: pointer; position: relative; transition: border-color .1s; }
+  .card:hover { border-color: var(--muted); }
+  .card.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .card .name, .person .name { font-weight: 600; font-size: 16px; }
+  .card .score { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .card .headline { margin: 2px 0 6px; }
+  .card .row { color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .card .summary { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+  .chip.neg { color: var(--bad); }
+  .badge { font-size: 12px; font-weight: 600; }
+  .badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); }
+  a.li { color: var(--accent); font-size: 13px; }
+  .check { margin: 0 8px 0 0; accent-color: var(--accent); pointer-events: none; }
+  .card .who { display: flex; align-items: center; }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .tab { background: none; color: var(--muted); border-radius: 0; padding: 8px 14px; border-bottom: 2px solid transparent; font-weight: 600; }
+  .tab.on { color: var(--text); border-bottom-color: var(--accent); }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar .status { color: var(--muted); font-size: 14px; }
+  button.secondary { background: var(--chip); color: var(--text); }
+  .person { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .person .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .field { display: grid; grid-template-columns: 70px 1fr; gap: 8px; align-items: center; margin-top: 10px; }
+  .field label { color: var(--muted); font-size: 13px; }
+  .field input, .person textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+                                   background: var(--bg); color: var(--text); font: inherit; }
+  .person textarea { min-height: 260px; resize: vertical; line-height: 1.5; margin-top: 8px; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .person h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 0; }
+  .person textarea.note { min-height: 112px; }
+  .counter.over { color: var(--bad); font-weight: 600; }
+  .tab:disabled { opacity: .4; cursor: not-allowed; }
+  .sendbar { text-align: center; margin: 4px 0 18px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  button.big { font-size: 17px; padding: 12px 28px; }
+  .columns { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+  .col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  .person.done { opacity: .75; }
+  .li-card { padding: 12px 14px; }
+  .li-card .head { flex-direction: column; gap: 0; }
+  .add-email { width: 100%; margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px;
+               background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+  a.button-link { color: var(--accent); font-weight: 600; font-size: 14px; }
+  button.small { padding: 6px 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Referral Finder</h1>
+    <p class="sub">Paste a job you applied to. Click the <span id="school">fellow</span> alumni you want to ask for a referral.</p>
+  </div>
+  <div class="credits" id="credits"></div>
+</header>
+<main>
+  <aside>
+    <h2>Past searches</h2>
+    <ul class="runs" id="runs"></ul>
+  </aside>
+  <section>
+    <form id="find">
+      <div class="inputs">
+        <input type="url" id="url" placeholder="Job link (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, LinkedIn, or any job page)" required>
+        <input type="url" id="company-url" placeholder="Optional: LinkedIn company URL, if it matched the wrong company">
+      </div>
+      <button id="go">Find alumni</button>
+    </form>
+    <div class="log" id="log" hidden></div>
+    <div id="run"><p class="empty">Paste a job link to start, or open a past search.</p></div>
+  </section>
+</main>
+<script>
+const $ = (sel) => document.querySelector(sel);
+// Build DOM nodes with text only; scraped LinkedIn text must never be parsed as HTML.
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null) continue;
+    if (k === "class") node.className = v;
+    else if (k === "onclick") node.onclick = v;
+    else node.setAttribute(k, v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) node.append(c);
+  return node;
+}
+
+let current = null;  // {id, data}
+let SCHOOL = "School";  // short school name from config.yaml, e.g. "Cornell"
+
+async function loadSettings() {
+  try {
+    const st = await api("/api/settings");
+    SCHOOL = st.school_short;
+    $("#school").textContent = st.school_short;
+  } catch (err) { /* keep the generic wording */ }
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.json();
+}
+
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  const list = $("#runs");
+  list.replaceChildren(...runs.map(r => el("li",
+    { class: current && current.id === r.id ? "active" : "", onclick: () => openRun(r.id) },
+    el("div", { class: "co" }, r.company),
+    el("div", { class: "meta" }, r.title),
+    el("div", { class: "meta" }, `${r.candidates} alumni · ${r.selected} selected`),
+  )));
+  if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
+}
+
+async function openRun(id) {
+  current = { id, data: await api(`/api/runs/${id}`) };
+  if (tab === "outreach") {
+    if (current.data.selected.length) return openOutreach();
+    tab = "people";
+  }
+  renderRun();
+  loadRuns();
+}
+
+let tab = "people";
+let outreachState = { loading: false, errors: [] };
+
+function renderRun() {
+  const { job, candidates, selected } = current.data;
+  const chosen = new Set(selected);
+  const header = el("div", { class: "job" },
+    el("div", {},
+      el("div", { class: "title" }, `${job.title}`),
+      el("div", { class: "meta" }, `${job.company}${job.location ? " · " + job.location : ""} · `,
+        el("a", { href: job.url, target: "_blank", rel: "noopener" }, "posting")),
+    ),
+    el("div", { class: "count", id: "count" }, `${chosen.size} selected`),
+  );
+  const tabs = el("div", { class: "tabs" },
+    el("button", { class: "tab" + (tab === "people" ? " on" : ""), onclick: () => { tab = "people"; renderRun(); } },
+      `People (${candidates.length})`),
+    el("button", { class: "tab" + (tab === "outreach" ? " on" : ""), id: "outreach-tab",
+                   disabled: chosen.size ? null : "", title: chosen.size ? "" : "Select people first",
+                   onclick: () => openOutreach() }, `Outreach (${chosen.size})`),
+  );
+  let body;
+  if (tab === "people") {
+    const cards = candidates.map(c => card(c, chosen));
+    body = cards.length ? el("div", { class: "grid" }, cards) : el("p", { class: "empty" }, "No alumni found.");
+  } else {
+    body = outreach();
+  }
+  $("#run").replaceChildren(header, tabs, body);
+}
+
+// Opening Outreach looks up emails, drafts emails for people who have one, and writes
+// LinkedIn invites for everyone else. The server only does work that's still missing.
+async function openOutreach() {
+  const runId = current.id;
+  tab = "outreach";
+  outreachState = { loading: true, errors: [] };
+  renderRun();
+  try {
+    const res = await api(`/api/runs/${runId}/outreach`, { method: "POST" });
+    if (current.id !== runId) return;  // the user opened another run meanwhile
+    current.data = res.run;
+    outreachState.errors = res.errors;
+  } catch (err) {
+    outreachState.errors = [err.message];
+  }
+  outreachState.loading = false;
+  if (tab === "outreach" && current.id === runId) renderRun();
+  loadRuns();
+  loadCredits();
+}
+
+function outreach() {
+  if (outreachState.loading) {
+    return el("div", { class: "log" }, el("div", {}, "Looking up emails (Hunter, then Apollo), then writing drafts for everyone with an email… this can take a minute."));
+  }
+  const { candidates, selected } = current.data;
+  const emails = current.data.emails || {}, drafts = current.data.drafts || {}, sent = current.data.sent || {};
+  const byUrl = Object.fromEntries(candidates.map(c => [c.result.linkedin_url, c]));
+  const withEmail = selected.filter(u => emails[u] && emails[u].email);
+  const withoutEmail = selected.filter(u => !(emails[u] && emails[u].email));
+  const sendable = withEmail.filter(u => drafts[u] && !sent[u]);
+  fieldRefs = {};
+  return el("div", {},
+    el("div", { class: "sendbar" },
+      el("button", { class: "big", disabled: sendable.length ? null : "", onclick: (e) => sendAll(e.target, sendable) },
+        sendable.length ? `Send all emails (${sendable.length})` : (withEmail.length ? "All emails sent" : "No emails to send")),
+      el("div", { class: "status", id: "status" }),
+      outreachState.errors.map(e => el("div", { class: "error" }, e)),
+    ),
+    el("div", { class: "columns" },
+      el("div", { class: "col" },
+        el("h2", {}, `Email (${withEmail.length})`),
+        withEmail.length ? withEmail.map(u => emailCard(byUrl[u], emails[u], drafts[u], sent[u]))
+                         : el("p", { class: "hint" }, "No emails found for these people. Use LinkedIn →")),
+      el("div", { class: "col" },
+        el("h2", {}, `LinkedIn (${withoutEmail.length})`),
+        withoutEmail.length ? withoutEmail.map(u => linkedinCard(byUrl[u], emails[u]))
+                            : el("p", { class: "hint" }, "Everyone has an email."))),
+  );
+}
+
+function emailBadge(e) {
+  if (!e) return el("span", { class: "hint" }, "not looked up");
+  if (e.error && !e.email) return el("span", { class: "hint" }, e.error);
+  if (e.source === "manual") return el("span", { class: "hint" }, "entered by you");
+  if (e.source === "pattern") return el("span", { class: "badge ok" }, "company format guess · verified valid");
+  if (e.source === "apollo") return e.status === "verified"
+    ? el("span", { class: "badge ok" }, "Apollo · verified")
+    : el("span", { class: "badge" }, `Apollo · unverified guess (${e.status || "no status"}), may bounce`);
+  const ok = e.status === "valid" && e.score >= 80;
+  return el("span", { class: "badge " + (ok ? "ok" : "") }, `Hunter ${e.score ?? "?"}/100 · ${e.status || "unverified"}`);
+}
+
+const NOTE_LIMIT = 200;  // LinkedIn connection-note limit on free accounts
+let fieldRefs = {};  // url -> {subject, text} for the email drafts currently on screen
+
+function copyButton(label, getText) {
+  return el("button", { class: "secondary small", onclick: async (ev) => {
+    await navigator.clipboard.writeText(getText());
+    ev.target.textContent = "Copied ✓";
+    setTimeout(() => { ev.target.textContent = label; }, 1500);
+  } }, label);
+}
+
+function personHead(r) {
+  return el("div", { class: "head" },
+    el("div", {}, el("span", { class: "name" }, r.name), " ",
+      el("a", { class: "li", href: r.linkedin_url, target: "_blank", rel: "noopener" }, "profile ↗")),
+    el("span", { class: "hint" }, r.headline || ""));
+}
+
+// Changing or adding an email moves the person between columns, so re-run outreach prep.
+async function setEmail(url, value) {
+  await api(`/api/runs/${current.id}/emails`, { method: "PUT", body: JSON.stringify({ linkedin_url: url, email: value }) });
+  await openOutreach();
+}
+
+function emailCard(c, e, d, sent) {
+  const r = c.result, url = r.linkedin_url;
+  const emailInput = el("input", { type: "email", value: e.email });
+  emailInput.onchange = () => setEmail(url, emailInput.value);
+  const parts = [personHead(r), el("div", { class: "field" }, el("label", {}, "Email"), el("div", {}, emailInput, emailBadge(e)))];
+  if (!d) {
+    parts.push(el("div", { class: "toolbar", style: "margin-top:8px" },
+      el("span", { class: "hint" }, "No draft yet."),
+      el("button", { class: "secondary small", onclick: (ev) => draft(ev.target, url) }, "Write draft")));
+    return el("div", { class: "person" }, parts);
+  }
+  const subject = el("input", { value: d.subject });
+  const text = el("textarea", {});
+  text.value = d.body;
+  fieldRefs[url] = { subject, text };
+  const saveDraft = () => save(`/api/runs/${current.id}/drafts`,
+    { linkedin_url: url, subject: subject.value, body: text.value, invitation: d.invitation || "" }, "drafts", false);
+  subject.onchange = saveDraft; text.onchange = saveDraft;
+  parts.push(
+    el("div", { class: "field" }, el("label", {}, "Subject"), subject),
+    text,
+    el("div", { class: "toolbar", style: "margin:8px 0 0" },
+      ...sendButtons(url, e, subject, text, d, sent),
+      copyButton("Copy", () => text.value),
+      sent ? null : el("button", { class: "secondary small", onclick: (ev) => {
+        if (current.data.drafts[url].edited && !confirm("Replace your edited draft with a new one?")) return;
+        draft(ev.target, url);
+      } }, "Regenerate")),
+  );
+  return el("div", { class: "person" + (sent ? " done" : "") }, parts);
+}
+
+function linkedinCard(c, e) {
+  const r = c.result, url = r.linkedin_url;
+  const note = el("textarea", { class: "note" });
+  note.value = (current.data.invitations || {})[url] || "";
+  const counter = el("span", { class: "hint counter" });
+  const count = () => {
+    counter.textContent = `${note.value.length}/${NOTE_LIMIT}`;
+    counter.classList.toggle("over", note.value.length > NOTE_LIMIT);
+  };
+  count();
+  note.oninput = count;
+  note.onchange = () => save(`/api/runs/${current.id}/invitations`, { linkedin_url: url, text: note.value }, "invitations", false);
+  const add = el("input", { type: "email", placeholder: "Found their email? Add it", class: "add-email" });
+  add.onchange = () => add.value.trim() && setEmail(url, add.value.trim());
+  return el("div", { class: "person li-card" },
+    personHead(r),
+    note,
+    el("div", { class: "toolbar", style: "margin:6px 0 0" },
+      copyButton("Copy invite", () => note.value),
+      el("a", { class: "button-link", href: url, target: "_blank", rel: "noopener" }, "Open LinkedIn ↗"),
+      counter),
+    el("div", { class: "hint", style: "margin-top:4px" }, e && e.error ? `Email: ${e.error}` : ""),
+    add,
+  );
+}
+
+function sendButtons(url, e, subject, text, d, sent) {
+  if (sent) return [el("span", { class: "badge ok" }, `Sent ${new Date(sent.sent_at).toLocaleString()}`)];
+  const to = e.email;
+  // Unsaved edits would otherwise be skipped: fields save on blur, which may not have fired yet.
+  const flush = () => api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
+    linkedin_url: url, subject: subject.value, body: text.value, invitation: d.invitation || "" }) });
+  const test = el("button", { class: "secondary small", onclick: async (ev) => {
+    await flush();
+    await busy(ev.target, "Sending…", async () => {
+      const { sent } = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url, test: true }) });
+      alert(`Test sent to ${sent.to}. Check your inbox.`);
+    });
+  } }, "Test to me");
+  const real = el("button", { class: "small", onclick: async (ev) => {
+    if (!confirm(`Send this email to ${to}, with your resume attached?\n\nSubject: ${subject.value}`)) return;
+    await flush();
+    await busy(ev.target, "Sending…", async () => {
+      const res = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url }) });
+      current.data.sent = res.run_sent;
+    });
+  } }, "Send");
+  return [real, test];
+}
+
+const SEND_ALL_GAP_MS = 4000;  // pause between emails so a batch doesn't look like a blast
+
+async function sendAll(button, urls) {
+  const { emails, candidates } = current.data;
+  const names = Object.fromEntries(candidates.map(c => [c.result.linkedin_url, c.result.name]));
+  const list = urls.map(u => `• ${names[u]} <${emails[u].email}>`).join("\n");
+  if (!confirm(`Send ${urls.length} email${urls.length > 1 ? "s" : ""}, each with your resume attached?\n\n${list}`)) return;
+  const failures = [];
+  await busy(button, "Sending…", async () => {
+    for (const [i, url] of urls.entries()) {
+      button.textContent = `Sending ${i + 1}/${urls.length}…`;
+      try {
+        const f = fieldRefs[url];
+        if (f) {  // save edits that haven't been blurred yet
+          current.data.drafts = (await api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
+            linkedin_url: url, subject: f.subject.value, body: f.text.value,
+            invitation: current.data.drafts[url].invitation || "" }) })).drafts;
+        }
+        const res = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url }) });
+        current.data.sent = res.run_sent;
+      } catch (err) {
+        failures.push(`${names[url]}: ${err.message}`);
+      }
+      if (i < urls.length - 1) await new Promise(r => setTimeout(r, SEND_ALL_GAP_MS));
+    }
+  });
+  const ok = urls.length - failures.length;
+  alert(`Sent ${ok} of ${urls.length}.` + (failures.length ? `\n\nNot sent:\n${failures.join("\n")}` : ""));
+}
+
+// Top-right panel: what's left of each paid/limited resource.
+async function loadCredits() {
+  let c;
+  try { c = await api("/api/credits"); } catch (err) { return; }
+  // "2026-11-21" -> "Nov 21" (parsed as a local date, not UTC midnight)
+  const short = iso => { const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+  const rows = [el("span", { class: "hdr" }, ""), el("span", { class: "hdr", style: "text-align:right" }, "left"),
+                el("span", { class: "hdr" }, "resets")];
+  const row = (k, v, low, resets, title) => rows.push(
+    el("span", { class: "k", title: title || "" }, k),
+    el("span", { class: "v" + (low ? " low" : ""), title: title || "" }, v),
+    el("span", { class: "r", title: title || "" }, resets));
+
+  // Hunter and Apollo shown as one pool: roughly one credit per email lookup.
+  const hunterOk = !c.hunter.error;
+  const left = Math.floor((hunterOk ? c.hunter.left : 0) + (c.apollo.enabled ? c.apollo.left : 0));
+  const total = (hunterOk ? c.hunter.limit : 0) + (c.apollo.enabled ? c.apollo.limit : 0);
+  const resets = [hunterOk ? `Hunter ${short(c.hunter.resets)}` : null,
+                  c.apollo.enabled ? `Apollo ${short(c.apollo.resets)}` : null].filter(Boolean).join(" · ");
+  const breakdown = (hunterOk ? `Hunter ${c.hunter.left}/${c.hunter.limit}` : `Hunter unavailable (${c.hunter.error})`) +
+    (c.apollo.enabled ? ` · Apollo ${c.apollo.left}/${c.apollo.limit}` : " · Apollo off");
+  row("Email credits", `${left} / ${total}`, left < 10, resets, breakdown);
+  row("LinkedIn", `${c.linkedin.left} / ${c.linkedin.limit}`, c.linkedin.left < 8, "midnight",
+      "profile checks left today (tool's safety cap)");
+  row("Claude", `$${c.claude.usd_month.toFixed(2)} spent`, false, short(c.claude.resets), "spent this month (from .data/claude_usage.jsonl)");
+  row("Gmail", c.gmail.connected ? c.gmail.account : "not connected", !c.gmail.connected, "",
+      c.gmail.connected ? "sending account" : "run: refer gmail-login");
+  $("#credits").replaceChildren(...rows);
+}
+
+async function save(path, body, key, rerender = true) {
+  try {
+    const res = await api(path, { method: "PUT", body: JSON.stringify(body) });
+    current.data[key] = res[key];
+    if (rerender) renderRun();
+  } catch (err) { alert(err.message); }
+}
+
+async function busy(button, label, fn) {
+  const before = button.textContent;
+  button.disabled = true; button.textContent = label;
+  try { await fn(); renderRun(); loadCredits(); }
+  catch (err) { button.disabled = false; button.textContent = before; const s = $("#status"); if (s) s.textContent = err.message; }
+}
+
+function draft(button, url) {
+  return busy(button, "Writing…", async () => {
+    current.data.drafts = (await api(`/api/runs/${current.id}/drafts`, {
+      method: "POST", body: JSON.stringify({ linkedin_url: url }) })).drafts;
+  });
+}
+
+function card(c, chosen) {
+  const r = c.result, url = r.linkedin_url;
+  const badge = c.verified === true ? el("span", { class: "badge ok" }, `✓ ${SCHOOL} confirmed`)
+              : c.verified === false ? el("span", { class: "badge bad" }, `✗ ${SCHOOL} not on profile`)
+              : el("span", { class: "badge" }, "not checked");
+  const node = el("div", { class: "card" + (chosen.has(url) ? " selected" : ""), title: "Click to select" },
+    el("div", { class: "top" },
+      el("span", { class: "who" },
+        el("input", { type: "checkbox", class: "check", tabindex: "-1" }),
+        el("span", { class: "name" }, r.name)),
+      el("span", { class: "score" }, `score ${c.score}`)),
+    el("div", { class: "headline" }, r.headline || ""),
+    el("div", { class: "row" },
+      c.grad_year ? el("span", {}, `${SCHOOL} '${String(c.grad_year).slice(-2)}`) : null,
+      r.location ? el("span", {}, r.location) : null,
+      r.degree ? el("span", {}, r.degree) : null,
+      badge),
+    r.summary ? el("p", { class: "summary" }, r.summary) : null,
+    el("div", { class: "chips" }, c.reasons.map(reason => {
+      const [pts, ...rest] = reason.split(" ");
+      return el("span", { class: "chip" + (pts.startsWith("-") ? " neg" : "") }, `${rest.join(" ")} ${pts}`);
+    })),
+    el("div", { class: "row", style: "margin-top:8px" },
+      el("a", { class: "li", href: url, target: "_blank", rel: "noopener",
+                onclick: (e) => e.stopPropagation() }, "Open LinkedIn profile ↗")),
+  );
+  node.querySelector(".check").checked = chosen.has(url);
+  node.onclick = () => toggle(url, node);
+  return node;
+}
+
+async function toggle(url, node) {
+  const sel = new Set(current.data.selected);
+  sel.has(url) ? sel.delete(url) : sel.add(url);
+  const { selected } = await api(`/api/runs/${current.id}/selected`, {
+    method: "PUT", body: JSON.stringify({ selected: [...sel] }) });
+  current.data.selected = selected;
+  const on = selected.includes(url);
+  node.classList.toggle("selected", on);
+  node.querySelector(".check").checked = on;
+  $("#count").textContent = `${selected.length} selected`;
+  const ot = $("#outreach-tab");
+  ot.textContent = `Outreach (${selected.length})`;
+  ot.disabled = !selected.length;
+  ot.title = selected.length ? "" : "Select people first";
+  loadRuns();
+}
+
+$("#find").onsubmit = async (e) => {
+  e.preventDefault();
+  const log = $("#log");
+  $("#go").disabled = true;
+  log.hidden = false;
+  log.replaceChildren(el("div", {}, "Starting…"));
+  try {
+    const { task_id } = await api("/api/find", { method: "POST", body: JSON.stringify({ url: $("#url").value, company_url: $("#company-url").value.trim() || null }) });
+    while (true) {
+      await new Promise(r => setTimeout(r, 1500));
+      const t = await api(`/api/tasks/${task_id}`);
+      log.replaceChildren(...t.log.map(line => el("div", {}, line)));
+      if (t.status === "done") { await openRun(t.run_id); loadCredits(); break; }
+      if (t.status === "error") { log.append(el("div", { class: "error" }, t.error)); break; }
+    }
+  } catch (err) {
+    log.append(el("div", { class: "error" }, err.message));
+  } finally {
+    $("#go").disabled = false;
+  }
+};
+
+loadSettings().then(loadRuns);
+loadCredits();
+</script>
+</body>
+</html>

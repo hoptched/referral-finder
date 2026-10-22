@@ -1,0 +1,299 @@
+# referral-finder
+
+A small local website for asking alumni for job referrals. After you apply to a job, paste the job link. It:
+
+1. reads the posting (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, LinkedIn, or any job page),
+2. finds alumni of **your school** who currently work at that company, via LinkedIn search, and ranks them,
+3. lets you click who to contact,
+4. looks up their work emails (Hunter.io, then Apollo.io),
+5. drafts a personal referral email for everyone with an email (Claude), and a LinkedIn connection note for everyone else,
+6. sends the emails from your Gmail with your resume attached, only after you approve them.
+
+Everything runs on your own computer at `http://localhost:8000`. See [AGENTS.md](AGENTS.md) for the build log and design decisions.
+
+## Using the website
+
+```bash
+.venv/bin/refer web          # then open http://localhost:8000 (works from Windows when running in WSL)
+```
+
+1. Paste the job link and click **Find alumni**. Progress shows as it goes (about 1–3 minutes; slower the first time for a company, and when new profiles need checking).
+2. The people show up as cards, ranked. Each card has their title, class year, location, whether your school was confirmed on their profile, why they ranked where they did, and a link to their LinkedIn profile.
+3. **Click a card to select it.** Click again to unselect. Selections save immediately.
+4. Past searches are listed on the left. Opening one costs no LinkedIn traffic.
+5. Open the **Outreach** tab. It's disabled until you've selected someone. Opening it automatically:
+   - looks up emails for selected people (Hunter, then Apollo; each method at most once per person, so reopening costs nothing),
+   - **drafts emails only for people whose email was found** (Sonnet), and
+   - fills a LinkedIn invite from `# Invitation` for everyone else (role and company short names come from one cheap Haiku call per job).
+
+   Layout: **Send all emails (N)** at the top; the **Email** column on the left (address and source badge, editable subject/body, Send / Test to me / Copy / Regenerate); the **LinkedIn** column on the right (editable invite with an x/200 counter, Copy invite, Open LinkedIn, and a "Found their email? Add it" box that moves the person to the Email column and drafts their email).
+   - **Send all emails** sends every email-column person who has a draft and hasn't been emailed yet. It shows one confirmation listing everyone, saves unsaved edits first, and waits 4s between emails. Each person can only be emailed once, across all searches.
+
+The top-right panel shows what's left and when it resets: **Email credits** (Hunter + Apollo as one pool; hover for the breakdown; Hunter's reset date comes from its API, Apollo's from `apollo.reset_day`), LinkedIn profile checks left today (resets at midnight), Claude spend this month (resets on the 1st), and the Gmail account. Items running low turn red. It refreshes after searches, outreach loads and sends (`GET /api/credits`).
+
+The server only listens on `127.0.0.1`, because it uses your LinkedIn session and API keys. Only one search runs at a time.
+
+## Getting started on a new machine
+
+About 30–45 minutes, most of it creating accounts.
+
+### 1. What you need
+
+- **Linux, macOS, or Windows with WSL2.** On WSL, the one-time LinkedIn login opens a browser window, which needs WSLg (built into Windows 11).
+- **Python 3.10+** and **git**.
+- **[uv](https://docs.astral.sh/uv/)** (Python package manager): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **Accounts:**
+
+| Account | Used for | Cost | Required? |
+|---|---|---|---|
+| LinkedIn | finding alumni (your normal account) | free | yes |
+| [Anthropic API](https://console.anthropic.com) | reading profiles (Haiku), writing emails (Sonnet) | pay-as-you-go, about $0.06 per job | yes |
+| [Hunter.io](https://hunter.io) | finding work emails | free plan: 50 credits/month | yes |
+| [Apollo.io](https://apollo.io) | second email source when Hunter misses | free plan: 75 credits/month | optional |
+| [Google Cloud](https://console.cloud.google.com) | sending through your Gmail | free | optional (without it, copy and paste emails) |
+
+LinkedIn's terms don't allow scraping. The tool keeps volume low (a daily cap, random delays, caching), but the account you log in with is the one at risk.
+
+### 2. Install
+
+```bash
+git clone <this repo> referral-finder
+cd referral-finder
+uv venv .venv
+uv pip install -p .venv -e ".[dev]"
+.venv/bin/playwright install chromium
+# If Chromium complains about missing system libraries (fresh Linux/WSL):
+#   sudo .venv/bin/playwright install-deps chromium
+.venv/bin/pytest tests        # all tests should pass; they need no keys or network
+```
+
+### 3. API keys → `.env`
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+Fill in:
+- `ANTHROPIC_API_KEY`: Console → API keys. If the console says your key isn't scoped to a workspace (requests fail with "must include the anthropic-workspace-id header"), also set `ANTHROPIC_WORKSPACE_ID` (Console → Settings → Workspaces, starts with `wrkspc_`).
+- `HUNTER_API_KEY`: hunter.io → API.
+- `APOLLO_API_KEY` (optional): apollo.io → Settings → Integrations → API. Give the key access to People Enrichment, or make it a master key. Apollo only gives free accounts API access if you **signed up with a work or school email**. Leave the line empty to turn Apollo off.
+
+`.env` is gitignored. Never commit it.
+
+### 4. Your profile → `config.yaml`
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Edit the `me:` section: name, the email you apply to jobs with, school (as written on LinkedIn), class year, major, and `linkedin_school_id`. To find your school's ID, open your school's LinkedIn page and click **Alumni**; the URL contains `schoolFilter=["<ID>"]` (Cornell University is `3523`). Set `target_roles` to the roles you're applying for. If you use Apollo, set `apollo.monthly_credit_limit` and `apollo.reset_day` from apollo.io → Settings → Billing and credits.
+
+### 5. Your resume and email template
+
+```bash
+cp ~/path/to/your_resume.pdf resume.pdf     # gitignored; attached to emails and read by Claude
+cp template.example.md template.md          # gitignored; your email, edit freely
+```
+
+`template.md` has four sections: `# Subject`, `# Body` and `# Invitation` (the LinkedIn note) are filled in exactly as written; `# Instructions` guides the two parts Claude writes (a personal line and a short blurb about you). Until you create `template.md`, the example is used.
+
+### 6. Log in to LinkedIn (once)
+
+```bash
+.venv/bin/refer login      # a browser opens: log in (2FA included), wait for your feed
+.venv/bin/refer check      # should print "Session is logged in."
+```
+
+This saves `session.json` (gitignored). If LinkedIn logs you out later, run `refer login` again.
+
+### 7. Connect Gmail (optional)
+
+Follow [Gmail setup](#gmail-setup-one-time) below. Without it, the site still drafts everything, and you copy and paste.
+
+### 8. Run it
+
+```bash
+.venv/bin/refer web
+```
+
+Open http://localhost:8000. On WSL, open it in your normal Windows browser. **After pulling code changes, stop it (Ctrl+C) and start it again**; it doesn't reload on its own.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `config.yaml not found` | Step 4. |
+| Search finds people at the wrong company | Paste the company's LinkedIn page into **LinkedIn company URL** and search again; it's remembered. |
+| "Gmail login expired" | Google Testing-mode logins last 7 days. Run the two `refer gmail-login` steps again. |
+| Email credits show red | Out of Hunter/Apollo credits this month; use the LinkedIn invites (free). |
+| LinkedIn shows a CAPTCHA or "unusual activity" | Stop for a day; lower `linkedin.max_profiles_per_day` and `profiles_to_verify`. |
+| Profile checks come back empty | LinkedIn changed its pages: run `refer check --profile https://www.linkedin.com/in/me/` and see `referral/profiles.py`. |
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `refer web [--port 8000]` | Starts the website (see above). |
+| `refer gmail-login` then `refer gmail-login --finish "<url>"` | Connects your Gmail for sending (see Gmail setup). |
+| `refer login` | Opens a visible browser to log in to LinkedIn (2FA included, 5 min limit). Saves cookies to `session.json`. |
+| `refer check` | Confirms the saved session is still logged in. |
+| `refer check --profile <url>` | Also scrapes one profile (its experience + education pages) and prints the name, education and top 3 jobs. Use it to test that scraping works. `https://www.linkedin.com/in/me/` tests on your own profile. |
+| `refer check --job <linkedin job url>` | Also scrapes one LinkedIn job posting. |
+| `refer find <job url> [--keywords K] [--pages N] [--verify N] [--company-url U]` | Command-line version of the website's search. Parses the job, searches for alumni, ranks them, scrapes the top `--verify` profiles (default `linkedin.profiles_to_verify`) to confirm the school and graduation year, shows a ranked table, and asks who to contact (`1,3,5` or `1-4`). Saves the job, all candidates and your picks to `runs/<company>-<job id>.json`. Scraped profiles are cached for 30 days, so re-running costs only the search pages. |
+| `refer search <job url> [--keywords K] [--pages N] [--company-url U]` | Parses the job, finds the company on LinkedIn, and lists alumni of your school who currently work there and match the keywords (default: first `target_roles` entry). Shows name, connection degree, headline, location, profile URL and LinkedIn's one-line summary. Use `--company-url` if the name lookup picks the wrong company. |
+| `refer job <url> [--full]` | Parses a job posting and prints the company, title, department/team, location and description. Tracking parameters (`?utm_source=…`) are removed. |
+
+## Configuration (`config.yaml`)
+
+| Key | Meaning |
+|---|---|
+| `me.*` | Your name, school, class year, major and resume path. Fills the email template. |
+| `me.application_email` | The address you apply to jobs with. The email template mentions it so referrers enter it on the referral form, where companies match referrals to applications. |
+| `me.linkedin_school_id` | Your school's LinkedIn ID for the `schoolFilter` (Cornell = `3523`, from the school page's alumni link). |
+| `target_roles` | Role keywords used to rank alumni by how relevant they are. |
+| `linkedin.session_path` | Where the login cookies are stored (gitignored). |
+| `linkedin.max_profiles_per_run` / `max_profiles_per_day` | Scraping limits so your account doesn't get flagged. |
+| `linkedin.delay_seconds` | Range of random pauses between profile scrapes. |
+| `linkedin.search_pages` | Result pages read per search (10 people each). |
+| `linkedin.profiles_to_verify` | How many top-ranked candidates `find` scrapes (2 page loads each). Limited by `max_profiles_per_run` and by what's left of `max_profiles_per_day` (tracked in `.cache/scrape_log.json`). |
+| `linkedin.headless` | `false` shows the browser while it scrapes (useful for debugging). |
+| `hunter.monthly_credit_limit` | Hard monthly cap on Hunter credits (default 50). |
+| `apollo.monthly_credit_limit` | Your Apollo monthly allowance (free plan: 75). |
+| `apollo.reset_day` | Day of the month Apollo renews your credits (see its billing page); default 1. |
+| `models.compose` | Claude model that writes the email blurb (`claude-sonnet-5-5`). |
+| `models.extract` | Claude model that turns scraped profile text into structured experience/education (`claude-haiku-5-5`). |
+
+## Layout
+
+```
+referral/
+  cli.py       # Typer CLI (`refer` entry point)
+  config.py    # loads config.yaml + .env
+  linkedin.py  # session create/load/check on top of linkedin_scraper; fixes its rate-limit false positive
+  profiles.py  # profile scraper: details/experience + details/education text -> Claude -> Profile
+  llm.py       # Anthropic client (sends the workspace header)
+  jobs.py      # job URL -> JobPosting (ATS APIs, LinkedIn, or fetch + Claude)
+  search.py    # company -> LinkedIn company IDs; alumni people search + result parsing
+  rank.py      # candidate scoring (card pass + profile pass) with reasons
+  pipeline.py  # find flow shared by CLI and web: company → search → rank → verify
+  web.py       # FastAPI app for the website (local only)
+  static/index.html  # the single-page UI
+  emails.py    # Hunter email finder + company-format guess verified by Hunter
+  compose.py   # template.md + Claude → draft email
+  gmail.py     # Gmail OAuth (send-only) + sending with the resume attached
+template.md    # YOUR email template (subject, body, instructions for Claude)
+  store.py     # JSON storage: profile cache, daily scrape counter, runs/
+tests/         # offline tests: `.venv/bin/pytest tests`
+```
+
+## How profile scraping works
+
+`linkedin_scraper`'s `PersonScraper` no longer works with LinkedIn's current pages: there's no `<h1>`, and the class names are scrambled, so it returns empty profiles. `referral/profiles.py` replaces it:
+
+1. It opens `<profile>/details/experience/` and `<profile>/details/education/`, with a random 3–6s pause between them.
+2. It keeps the visible text of `<main>` and cuts off the sidebar/footer (from "Profile language" onward).
+3. It sends that text to `models.extract` with structured output and gets back `Experience` / `Education` records.
+
+That's 2 page loads per person (PersonScraper made ~7), and it keeps working when LinkedIn changes its markup.
+
+`referral/linkedin.py` also replaces the library's `detect_rate_limit`. The original searched the page's *full* text, including hidden script data, for phrases like "try again later". Every LinkedIn profile has a hidden "Something went wrong. Please try again later." string, so every scrape failed. The replacement checks only visible text, and keeps the checkpoint and CAPTCHA checks.
+
+## How job parsing works
+
+`referral/jobs.py` chooses a source based on the URL:
+
+| URL | Source | Notes |
+|---|---|---|
+| `jobs.smartrecruiters.com/<company>/<id>` | `api.smartrecruiters.com/v1/companies/<company>/postings/<id>` | Public. Has the company's display name and department. |
+| `job-boards.greenhouse.io/<board>/jobs/<id>` (or `boards.`) | `boards-api.greenhouse.io/v1/boards/<board>/jobs/<id>?content=true` | Public. Has `company_name` and departments. |
+| `jobs.lever.co/<company>/<uuid>` | `api.lever.co/v0/postings/<company>/<uuid>` | Public. No display name, so the company name comes from the URL slug (e.g. "Palantir"). |
+| `jobs.ashbyhq.com/<org>/<uuid>` | `api.ashbyhq.com/posting-api/job-board/<org>` (filtered by id) | Public. Same slug-derived name (e.g. "Openai"). |
+| `<tenant>.wdN.myworkdayjobs.com/[en-US/]<site>/job/<path>` | `https://<host>/wday/cxs/<tenant>/<site>/job/<path>` (Workday's JSON API) | Public. Company from `hiringOrganization`, with legal suffixes removed ("Zillow Group, Inc." → "Zillow Group"). The page itself is JavaScript-only, so this API is the only way to read it. |
+| `linkedin.com/jobs/...` | `linkedin_scraper` `JobScraper` | Needs `session.json`. |
+| `simplify.jobs/c/...` | rejected | That's a Simplify company page, not a job. Use the job's application link. |
+| anything else | page fetched, converted to text, structured by `models.extract` | Fails with a clear error if no company/title can be read (JavaScript-only pages), instead of continuing with blanks. |
+
+## How alumni search works
+
+`referral/search.py` (`linkedin_scraper` has no people search):
+
+1. **Find the company.** It searches LinkedIn companies for the posting's company name. If no result has exactly that name, it searches again without generic words ("Zillow Group" → "Zillow"). It takes an exact name match if one exists, otherwise the result with the most followers, which is the main page rather than a subsidiary. The site logs the page it chose. If it's wrong, paste the right page into **LinkedIn company URL** (or use CLI `--company-url`); the correction is remembered for that company name.
+2. **Get the company IDs.** It opens the company page and reads its "see all employees" link, a people search filtered by `currentCompany` only. That gives LinkedIn's own ID list, affiliated pages included (LinkedIn → `1337`, `39939`, `2587638`). The result is cached in `.cache/companies.json`, so each company costs those 2 page loads only once.
+3. **Search.** It opens `/search/results/people/?currentCompany=[…]&schoolFilter=["3523"]&keywords=…&page=N`. The filter lists must be compact JSON: with `json.dumps`'s default `", "` spacing, LinkedIn silently drops the filter.
+4. **Read the cards.** Every result card has exactly one `• 2nd` / `3rd+` degree marker, so each card is found by climbing from a name link to the largest ancestor with one marker. Mutual-connection links (also `/in/` links) are skipped because the card text doesn't start with their name. Some name links wrap the whole card, so the name is the link text's first line.
+
+LinkedIn's summary line sometimes says "You both *worked at* <school>" rather than "went to". The school filter still applies; that line just picks one thing you have in common. The profile scrape in the ranking step confirms the education.
+
+## How ranking works
+
+`referral/rank.py` scores in two passes and records a reason for every point, which the table's "Why" column shows.
+
+**Card pass** (every search result, no extra page loads):
+
+| Signal | Points |
+|---|---|
+| A `target_roles` entry appears in the headline or summary | +3 |
+| Seniority, from the summary's current title (falls back to the headline): engineer/SWE +3, senior or manager +2, staff +1, principal 0, director/VP −1 | −1 to +3 |
+| Recruiter / talent / sourcer | −1 |
+| Graduation year in the card (e.g. "Cornell'22", built from `me.school`): ≤3 years ago +3, ≤7 +2, ≤12 +1; current student +1 | 0 to +3 |
+| Posting's team name appears in their card | +2 |
+| 1st / 2nd-degree connection | +2 / +1 |
+
+**Profile pass** (top `profiles_to_verify` only):
+- No entry for your school in their education: −10, marked ✗.
+- Graduation year taken from that school entry's `end_year` if the card didn't show one.
+- No current role at the company: −5.
+
+Seniority counts so heavily because recent grads remember recruiting and are the most likely to say yes. Senior people get many more requests.
+
+## Gmail setup (one time)
+
+1. Go to https://console.cloud.google.com and create a project (any name, e.g. "referral-finder").
+2. **APIs & Services → Library →** search "Gmail API" → **Enable**.
+3. **Google Auth Platform** (formerly "OAuth consent screen") → **Get started**. Fill in an app name and your email, choose Audience **External**, and finish.
+4. **Audience → Test users → Add users →** add the Gmail address you'll send from.
+5. **Clients → Create client →** Application type **Desktop app** → **Create** → **Download JSON**. Save it as `referral-finder/credentials.json`.
+6. Run `.venv/bin/refer gmail-login` and open the URL it prints. Approve; Google warns that the app isn't verified, but it's your own app, so click **Continue**. The browser then ends on a "site can't be reached" page at `localhost:8090/?state=…&code=…`, which is expected: nothing listens there. Copy that whole address and run `.venv/bin/refer gmail-login --finish "<address>"`. This writes `token.json`. (Two steps because a waiting local server didn't survive being run from Claude Code's `!` prompt, and WSL↔Windows localhost forwarding isn't reliable.)
+
+Notes:
+- Scopes are `gmail.send` plus your email address. The tool can't read your mail.
+- While the app is in Google's **Testing** mode, the login expires after **7 days**. The website will say "Gmail login expired"; just run `refer gmail-login` again.
+- Every real send is appended to `.data/sent.jsonl` (gitignored), which is how "never email the same person twice" works across searches.
+
+## Finding emails
+
+`referral/emails.py`, run from the **Find emails** button, only for selected people. It's never repeated for someone who already has a result.
+
+1. **Hunter email finder** with full name, company (or its domain, once one lookup has revealed it) and LinkedIn handle. It costs **1 credit, only when an email is found**.
+2. **Apollo people match** (`POST /api/v1/people/match`) for anyone Hunter misses, if `APOLLO_API_KEY` is in `.env`. It sends name, LinkedIn URL and company, with personal emails off. Apollo bills **1 credit per matched person, even if no email comes back** (it counts profile data as billable); nothing when there's no match (`match_confidence: none`). Matches with `match_confidence` low or none are rejected (likely the wrong person). Apollo often returns `extrapolated` addresses, which are its own format guess, not a known mailbox. These are used **without** verification (to save Hunter credits) and badged "unverified guess, may bounce". An occasional bounce is harmless at this volume; switch that person to the LinkedIn invite. `apollo.monthly_credit_limit` is enforced with a local counter in `.data/apollo_usage.json` that counts the way Apollo bills. Apollo's API can't report your balance; check **Settings → Billing and credits** on apollo.io and set the limit to your real allowance. Note: Apollo only gives free accounts API access if they **signed up with a work email**.
+3. **Company-format guess** (**off by default**: `hunter.guess_emails: false`) for anyone still missing: it learns the format from addresses already found at the company (e.g. `jdoe@acme.com` for Jane Doe → `{f}{last}`), then tries that format and common ones (up to 3), checking each with Hunter's email verifier at **½ credit per guess**. A guess is only kept if the verifier says `valid`. Nothing is ever sent to an address that wasn't found or verified, unless you type it in yourself.
+
+Each person's result records which methods were `tried`, so adding a method later (e.g. Apollo) lets **Find emails** retry earlier misses with just that method. A quota or auth error from a provider stops calls to it for the rest of the click.
+
+Hunter's free plan has **50 credits a month, shared by searches and verifications**. `hunter.monthly_credit_limit` in `config.yaml` (default 50) is a hard cap: before every paid call the tool reads your usage from Hunter's free account endpoint and refuses any call that would go over. Credits left and the reset date show next to **Find emails**.
+
+## Writing drafts
+
+`referral/compose.py`, run from **Draft emails** / **Regenerate**.
+
+- `template.md` has four sections: `# Subject`, `# Body`, `# Invitation` (the LinkedIn connection note, ≤200 characters) and `# Instructions`. `<!-- comments -->` are ignored.
+- Placeholders are filled in exactly: `{first_name} {my_name} {application_email} {major} {class_year} {class_year_short} {school} {job_title} {short_title} {company} {job_link}`. The invitation uses only these, so it's fully under your control.
+- Claude (`models.compose`, Sonnet 5.5) writes only `{personal_line}` and `{blurb}`, plus `{short_title}` and the company's proper display name. It follows `# Instructions` and gets the job description, the recipient's card and scraped profile, and your resume PDF.
+- LinkedIn's "You both went to / worked at …" sentence is removed from the recipient summary first, because it's written from your point of view and is often wrong ("worked at Cornell").
+- The request uses Sonnet 5.5 with the `fallbacks: "default"` server-side refusal fallback (beta `server-side-fallback-2026-07-01`). A refusal shows as an error.
+
+## Costs
+
+Every Claude call is logged to `.data/claude_usage.jsonl` (task, model, tokens, USD). Measured per call:
+
+| Call | Model | Tokens (in / out) | Cost |
+|---|---|---|---|
+| Draft one email (resume PDF + job + profile) | Sonnet 5.5 | ~7,000 / ~300 | ~$0.017 |
+| Structure one scraped profile | Haiku 5.5 | ~3,500 / ~1,400 | ~$0.001 |
+| Read a generic job page | Haiku 5.5 | a few thousand in | ~$0.001 |
+
+A typical job (8 profile checks + 3 drafts) costs about **$0.06** in Claude. Gmail API, Google Cloud and LinkedIn are free. Hunter (50 credits/month free) is the scarce resource; Apollo is the same.
+
+## Never committed
+`.env`, `session.json`, `credentials.json`, `token.json`, `*.pdf`, `*.db`, `.cache/` (company IDs, profiles, scrape log), `runs/`, `.data/` (sent-email log) (see `.gitignore`).

@@ -1,0 +1,52 @@
+# Copy this file to config.yaml and fill in the "me" section.
+# config.yaml is gitignored, so your details stay on your machine.
+
+# Your profile: fills template.md and is used to rank candidates.
+me:
+  name: Alex Doe
+  application_email: alex.doe@example.com  # the address you apply to jobs with; referral forms ask for it
+  school: Cornell University      # as written on LinkedIn
+  class_year: 2028
+  major: Computer Science
+  resume_path: resume.pdf         # relative to the project folder; gitignored
+  # Your school's LinkedIn ID (used as the people-search "schoolFilter"). To find it,
+  # open your school's LinkedIn page and click "Alumni"; the URL contains
+  # schoolFilter=["<ID>"]. Cornell University is 3523.
+  linkedin_school_id: "3523"
+
+# Roles you want referrals for; used to rank alumni by relevance. The first one is
+# also the default people-search keyword.
+target_roles:
+  - software engineer
+
+# LinkedIn limits. Keep them low: heavy scraping gets accounts restricted.
+linkedin:
+  session_path: session.json
+  max_profiles_per_run: 15
+  max_profiles_per_day: 40
+  delay_seconds: [5, 15]  # random pause between profile checks
+  headless: true          # false shows the browser while it works
+  search_pages: 2         # result pages per search (10 people each)
+  profiles_to_verify: 8   # top-ranked profiles to check for school + grad year
+
+# Hunter.io email lookups. Usage is checked against your Hunter account before every
+# paid call, and the tool never goes past this many credits per month (finder = 1
+# credit, only when it finds an email).
+hunter:
+  monthly_credit_limit: 50  # free plan
+  # Guess addresses from the company's email format and check them with Hunter's
+  # verifier (0.5 credit per guess, up to 3 per person). Finds some emails at companies
+  # with a uniform format, but uses credits fast.
+  guess_emails: false
+
+# Apollo.io, tried when Hunter finds nothing (needs APOLLO_API_KEY in .env; remove
+# the key to turn it off). Apollo bills 1 credit per matched person. Its API can't
+# report your balance, so set these from apollo.io → Settings → Billing and credits.
+apollo:
+  monthly_credit_limit: 75  # free plan allowance at the time of writing
+  reset_day: 1              # day of the month your Apollo credits renew
+
+# Claude models. compose = writes each email; extract = structures scraped text.
+models:
+  compose: claude-sonnet-5-5
+  extract: claude-haiku-5-5

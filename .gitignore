@@ -1,0 +1,18 @@
+# Secrets & personal data — never commit
+config.yaml
+template.md
+.env
+session.json
+credentials.json
+token.json
+*.pdf
+*.db
+.cache/
+runs/
+.data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
