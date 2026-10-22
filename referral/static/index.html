@@ -480,7 +480,11 @@ async function loadCredits() {
   const breakdown = (hunterOk ? `Hunter ${c.hunter.left}/${c.hunter.limit}`
                      : c.hunter.enabled ? `Hunter unavailable (${c.hunter.error})` : "Hunter off (no key)") +
     (c.apollo.enabled ? ` · Apollo ${c.apollo.left}/${c.apollo.limit}` : " · Apollo off");
-  row("Email credits", `${left} / ${total}`, left < 10, resets, breakdown);
+  if (!c.hunter.enabled && !c.apollo.enabled) {
+    row("Email lookup", "off", false, "", "add HUNTER_API_KEY and/or APOLLO_API_KEY to .env; until then everyone gets a LinkedIn invite");
+  } else {
+    row("Email credits", `${left} / ${total}`, left < 10, resets, breakdown);
+  }
   row("LinkedIn", `${c.linkedin.left} / ${c.linkedin.limit}`, c.linkedin.left < 8, "midnight",
       "profile checks left today (tool's safety cap)");
   row("Claude", `$${c.claude.usd_month.toFixed(2)} spent`, false, short(c.claude.resets), "spent this month (from .data/claude_usage.jsonl)");

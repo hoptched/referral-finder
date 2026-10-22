@@ -35,7 +35,7 @@ The server only listens on `127.0.0.1`, because it uses your LinkedIn session an
 
 ## Getting started on a new machine
 
-About 30–45 minutes, most of it creating accounts.
+About 30–45 minutes, most of it creating accounts. **Forking?** Everything personal stays out of git: your keys go in `.env`, your details in `config.yaml`, your email in `template.md`, and your resume, logins and search results in gitignored files. The repo only has `*.example` versions, so a fork starts clean and each person adds their own keys.
 
 ### 1. What you need
 
@@ -48,7 +48,7 @@ About 30–45 minutes, most of it creating accounts.
 |---|---|---|---|
 | LinkedIn | finding alumni (your normal account) | free | yes |
 | [Anthropic API](https://console.anthropic.com) | reading profiles (Haiku), writing emails (Sonnet) | pay-as-you-go, about $0.06 per job | yes |
-| [Hunter.io](https://hunter.io) | finding work emails | free plan: 50 credits/month | yes |
+| [Hunter.io](https://hunter.io) | finding work emails | free plan: 50 credits/month | recommended (without any email source, everyone gets a LinkedIn invite) |
 | [Apollo.io](https://apollo.io) | second email source when Hunter misses | free plan: 75 credits/month | optional |
 | [Google Cloud](https://console.cloud.google.com) | sending through your Gmail | free | optional (without it, copy and paste emails) |
 
@@ -76,7 +76,7 @@ chmod 600 .env
 
 Fill in:
 - `ANTHROPIC_API_KEY`: Console → API keys. If the console says your key isn't scoped to a workspace (requests fail with "must include the anthropic-workspace-id header"), also set `ANTHROPIC_WORKSPACE_ID` (Console → Settings → Workspaces, starts with `wrkspc_`).
-- `HUNTER_API_KEY`: hunter.io → API.
+- `HUNTER_API_KEY` (optional): hunter.io → API. Leave empty to turn Hunter off.
 - `APOLLO_API_KEY` (optional): apollo.io → Settings → Integrations → API. Give the key access to People Enrichment, or make it a master key. Apollo only gives free accounts API access if you **signed up with a work or school email**. Leave the line empty to turn Apollo off.
 
 `.env` is gitignored. Never commit it.
@@ -111,7 +111,15 @@ This saves `session.json` (gitignored). If LinkedIn logs you out later, run `ref
 
 Follow [Gmail setup](#gmail-setup-one-time) below. Without it, the site still drafts everything, and you copy and paste.
 
-### 8. Run it
+### 8. Check your setup, then run it
+
+```bash
+.venv/bin/refer setup-check
+```
+
+This lists every requirement with ✓ / ✗ and how to fix each one (keys, config, resume, LinkedIn login, browser, Gmail). Fix anything marked ✗; items marked – are optional.
+
+### 9. Run it
 
 ```bash
 .venv/bin/refer web
@@ -123,7 +131,9 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 
 | Symptom | Fix |
 |---|---|
+| Not sure what's missing | `refer setup-check` |
 | `config.yaml not found` | Step 4. |
+| `ANTHROPIC_API_KEY is missing` | Step 3. |
 | Search finds people at the wrong company | Paste the company's LinkedIn page into **LinkedIn company URL** and search again; it's remembered. |
 | "Gmail login expired" | Google Testing-mode logins last 7 days. Run the two `refer gmail-login` steps again. |
 | Email credits show red | Out of Hunter/Apollo credits this month; use the LinkedIn invites (free). |
@@ -134,6 +144,7 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 
 | Command | What it does |
 |---|---|
+| `refer setup-check` | Checks keys, config, resume, LinkedIn login, browser and Gmail, and says how to fix anything missing. |
 | `refer web [--port 8000]` | Starts the website (see above). |
 | `refer gmail-login` then `refer gmail-login --finish "<url>"` | Connects your Gmail for sending (see Gmail setup). |
 | `refer login` | Opens a visible browser to log in to LinkedIn (2FA included, 5 min limit). Saves cookies to `session.json`. |
