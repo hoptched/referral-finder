@@ -78,6 +78,8 @@ def job(
     cfg = load_config()
     posting = asyncio.run(parse_job(url, cfg["models"]["extract"], _session_path()))
     console.print(f"[bold]{posting.title}[/bold] @ {posting.company}  [dim]({posting.source})[/dim]")
+    for warning in posting.warnings:
+        console.print(f"[yellow]⚠ {warning}[/yellow]")
     for label, value in [("Department", posting.department), ("Team", posting.team), ("Location", posting.location)]:
         if value:
             console.print(f"  {label}: {value}")

@@ -400,6 +400,8 @@ async def _run_find(task_id: str, body: FindRequest):
             log("Reading the job posting…")
             posting = await parse_job(body.url, cfg["models"]["extract"], project_path(cfg["linkedin"]["session_path"]))
             log(f"{posting.title} @ {posting.company}")
+            for warning in posting.warnings:
+                log(f"⚠ {warning}")
             candidates = await find_candidates(cfg, posting, body.company_url, body.keywords, log=log)
             # Re-running a job keeps the people already picked, their emails and drafts.
             run_id = run_path(posting.company, posting.url).stem

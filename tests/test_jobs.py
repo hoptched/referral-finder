@@ -63,3 +63,11 @@ def test_json_ld_posting():
     assert (p.source, p.title, p.company, p.location) == ("json-ld", "AI Engineer Intern", "Acme", "Chicago, IL")
     assert "Build things." in p.description and "- Python" in p.description
     assert _json_ld_posting("https://x", "<html><body>Log into your account</body></html>") is None
+
+
+def test_clean_url_keeps_job_ids():
+    ibm = ("https://careers.ibm.com/en_US/careers/JobDetail?jobId=137753&utm_source=zero2sudo"
+           "&fbclid=PAZXh0bgNhZW0CMTEAcGRvZgRz#apply")
+    assert clean_url(ibm) == "https://careers.ibm.com/en_US/careers/JobDetail?jobId=137753"
+    assert clean_url("https://boards.greenhouse.io/acme?gh_jid=123&gh_src=abc") == "https://boards.greenhouse.io/acme?gh_jid=123"
+    assert clean_url("https://x.com/job/1?utm_medium=a&ref=Simplify&src=Simplify") == "https://x.com/job/1"

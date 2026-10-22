@@ -142,7 +142,7 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 | `refer check --job <linkedin job url>` | Also scrapes one LinkedIn job posting. |
 | `refer find <job url> [--keywords K] [--pages N] [--verify N] [--company-url U]` | Command-line version of the website's search. Parses the job, searches for alumni, ranks them, scrapes the top `--verify` profiles (default `linkedin.profiles_to_verify`) to confirm the school and graduation year, shows a ranked table, and asks who to contact (`1,3,5` or `1-4`). Saves the job, all candidates and your picks to `runs/<company>-<job id>.json`. Scraped profiles are cached for 30 days, so re-running costs only the search pages. |
 | `refer search <job url> [--keywords K] [--pages N] [--company-url U]` | Parses the job, finds the company on LinkedIn, and lists alumni of your school who currently work there and match the keywords (default: first `target_roles` entry). Shows name, connection degree, headline, location, profile URL and LinkedIn's one-line summary. Use `--company-url` if the name lookup picks the wrong company. |
-| `refer job <url> [--full]` | Parses a job posting and prints the company, title, department/team, location and description. Tracking parameters (`?utm_source=…`) are removed. |
+| `refer job <url> [--full]` | Parses a job posting and prints the company, title, department/team, location and description. Tracking parameters (`utm_*`, `fbclid`, `ref`, `src`, …) are removed; other query parameters (e.g. IBM's `jobId`) are kept. |
 
 ## Configuration (`config.yaml`)
 
@@ -213,7 +213,7 @@ That's 2 page loads per person (PersonScraper made ~7), and it keeps working whe
 | `linkedin.com/jobs/...` | `linkedin_scraper` `JobScraper` | Needs `session.json`. |
 | `simplify.jobs/c/...` | rejected | That's a Simplify company page, not a job. Use the job's application link. |
 | anything else, with a schema.org `JobPosting` block | that JSON-LD block (exact, free) | Many career sites embed it for Google Jobs; often the only place the description is (e.g. jobs.aon.com). |
-| anything else | page fetched, converted to text, structured by `models.extract` | Claude first decides whether the page is a job posting at all; login walls, error pages and "applied jobs" pages are rejected with a clear message. Also fails clearly if no company/title can be read. |
+| anything else | page fetched (falls back to headless Chromium when a site returns a bot-check or an empty page, e.g. IBM), converted to text, structured by `models.extract` | Claude also judges whether the page is really a job posting. If it isn't sure (login walls, "applied jobs" pages), the search **continues with a ⚠ warning** in the progress log and on the search's header, so you can check the title before sending. It only stops if no company/title can be read. |
 
 ## How alumni search works
 

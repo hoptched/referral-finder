@@ -56,6 +56,8 @@
          font-size: 14px; color: var(--muted); margin-bottom: 16px; }
   .log div:last-child { color: var(--text); }
   .error { color: var(--bad); }
+  .warning { background: color-mix(in srgb, #e0a800 15%, transparent); border: 1px solid color-mix(in srgb, #e0a800 50%, transparent);
+             border-radius: 8px; padding: 8px 12px; margin: -6px 0 14px; font-size: 14px; }
 
   .job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px;
          display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -231,6 +233,7 @@ function renderRun() {
     ),
     el("div", { class: "count", id: "count" }, `${chosen.size} selected`),
   );
+  const warnings = (job.warnings || []).map(w => el("div", { class: "warning" }, `⚠ ${w}`));
   const tabs = el("div", { class: "tabs" },
     el("button", { class: "tab" + (tab === "people" ? " on" : ""), onclick: () => { tab = "people"; renderRun(); } },
       `People (${candidates.length})`),
@@ -252,7 +255,7 @@ function renderRun() {
   } else {
     body = outreach();
   }
-  $("#run").replaceChildren(header, tabs, body);
+  $("#run").replaceChildren(header, ...warnings, tabs, body);
 }
 
 // Opening Outreach looks up emails, drafts emails for people who have one, and writes
@@ -566,7 +569,7 @@ $("#find").onsubmit = async (e) => {
     while (true) {
       await new Promise(r => setTimeout(r, 1500));
       const t = await api(`/api/tasks/${task_id}`);
-      log.replaceChildren(...t.log.map(line => el("div", {}, line)));
+      log.replaceChildren(...t.log.map(line => el("div", { class: line.startsWith("⚠") ? "warning" : "" }, line)));
       if (t.status === "done") { await openRun(t.run_id); loadCredits(); break; }
       if (t.status === "error") { log.append(el("div", { class: "error" }, t.error)); break; }
     }

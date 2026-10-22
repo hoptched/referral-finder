@@ -11,7 +11,7 @@ import json
 import re
 from html.parser import HTMLParser
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ class JobPosting(BaseModel):
     team: Optional[str] = None
     location: Optional[str] = None
     description: str = ""
+    warnings: list[str] = []  # shown to the user, e.g. "this page may not be a job posting"
 
 
 class _Extracted(BaseModel):
@@ -228,12 +229,35 @@ def _json_ld_posting(url: str, markup: str) -> Optional[JobPosting]:
     return None
 
 
+MIN_PAGE_TEXT = 500  # characters; less means a bot wall, an empty shell, or a JavaScript-only page
+
+
+async def _browser_html(url: str) -> str:
+    """Load a page in headless Chromium (no LinkedIn session). Some career sites answer plain
+    HTTP requests with an empty bot-check response (IBM: 202, no body) or render everything in JS."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        try:
+            page = await browser.new_page(user_agent=USER_AGENT)
+            await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            await page.wait_for_timeout(4_000)  # let the posting render
+            return await page.content()
+        finally:
+            await browser.close()
+
+
 async def _generic(http, url, model) -> JobPosting:
     response = await http.get(url, follow_redirects=True)
-    response.raise_for_status()
-    if posting := _json_ld_posting(url, response.text):
+    markup = response.text if response.status_code == 200 else ""
+    if posting := _json_ld_posting(url, markup):
         return posting
-    text = html_to_text(response.text)
+    if len(html_to_text(markup)) < MIN_PAGE_TEXT:
+        markup = await _browser_html(url)
+        if posting := _json_ld_posting(url, markup):
+            return posting
+    text = html_to_text(markup)
     extracted = await client().messages.parse(
         model=model,
         max_tokens=16000,
@@ -251,15 +275,16 @@ async def _generic(http, url, model) -> JobPosting:
     )
     log_usage("job_page", extracted)
     data = extracted.parsed_output
-    if not data.is_job_posting:
-        # e.g. a careers-site "applied jobs" link that shows a login form.
-        raise ValueError("This page isn't a job posting (it may need a login). Use the job's public "
-                         "posting link, the page you'd share with someone else.")
     if not (data.company.strip() and data.title.strip()):
-        # Typically a page rendered by JavaScript, so the HTML has no posting text.
-        raise ValueError("Couldn't read the company and job title from this page. Try the job's application "
-                         "link (Workday, Greenhouse, Lever, Ashby…) instead.")
-    return JobPosting(url=url, source="generic", **data.model_dump(exclude={"is_job_posting"}))
+        raise ValueError("Couldn't read the company and job title from this page. Try the job's public posting "
+                         "link or its application link (Workday, Greenhouse, Lever, Ashby…).")
+    warnings = []
+    if not data.is_job_posting:
+        # Lenient on purpose: the check can be wrong, so carry on but make sure the user sees it.
+        # (Real case: an "applied jobs" link that showed a login form → title "Login".)
+        warnings.append(f"This page may not be a job posting (it may need a login). Read it as “{data.title}” "
+                        f"at {data.company}; check that's right before sending, and prefer the public posting link.")
+    return JobPosting(url=url, source="generic", warnings=warnings, **data.model_dump(exclude={"is_job_posting"}))
 
 
 # (host regex, path regex, handler). Host groups, then path groups, are passed to the handler.
@@ -273,10 +298,19 @@ _ROUTES = [
 ]
 
 
+# Query parameters that only track where a click came from. Everything else is kept:
+# some sites put the job itself in the query (IBM: ?jobId=137753, Greenhouse: gh_jid).
+TRACKING_PARAMS = {"fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid", "ref", "src", "source",
+                   "gh_src", "lever-source", "_hsenc", "_hsmi", "trk", "trackingid", "refid", "si"}
+
+
 def clean_url(url: str) -> str:
-    """Drop query string and fragment (utm_source, ref, ...)."""
+    """Drop tracking parameters (utm_*, fbclid, ref, ...) and the fragment; keep the rest."""
     parts = urlsplit(url.strip())
-    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if not k.lower().startswith("utm_") and k.lower() not in TRACKING_PARAMS]
+    query = f"?{urlencode(kept)}" if kept else ""
+    return f"{parts.scheme}://{parts.netloc}{parts.path}{query}"
 
 
 async def parse_job(url: str, extract_model: str, session_path=None) -> JobPosting:
