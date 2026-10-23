@@ -48,6 +48,9 @@
   .jobs li.dragging { opacity: .5; }
   .jobs .co { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
   .jobs .age { color: var(--muted); font-weight: 400; font-size: 12px; white-space: nowrap; }
+  .jobs .tag { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft);
+               border-radius: 999px; padding: 0 6px; margin-right: 4px; }
+  #ig-note.error { color: var(--bad); }
   .jobs .title { font-size: 14px; }
   .jobs .row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 2px; }
   .jobs .row .meta { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -166,6 +169,7 @@
     </div>
     <input type="search" id="jobs-filter" placeholder="Filter: company, role, location">
     <div class="hint" id="jobs-note">Loading Simplify's list…</div>
+    <div class="hint" id="ig-note"></div>
     <ul class="jobs" id="jobs"></ul>
   </aside>
   <aside class="runs-col" id="dropzone">
@@ -274,13 +278,20 @@ function age(posted) {
 
 function renderJobs() {
   const q = $("#jobs-filter").value.trim().toLowerCase();
-  const shown = JOBS.filter(j => !q || `${j.company} ${j.title} ${j.locations.join(" ")}`.toLowerCase().includes(q));
+  const shown = JOBS.filter(j => !q || `${j.company} ${j.title} ${j.locations.join(" ")} ${j.source} ${(j.also || []).join(" ")}`.toLowerCase().includes(q));
   $("#jobs-count").textContent = `(${JOBS.length})`;
   const mins = Math.round((Date.now() / 1000 - jobsInfo.fetched_at) / 60);
   $("#jobs-note").textContent = (q ? `${shown.length} match · ` : "") +
     `updated ${mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`}` +
     (jobsInfo.hidden ? ` · ${jobsInfo.hidden} already searched` : "");
   $("#jobs").replaceChildren(...shown.map(jobItem));
+  const ig = jobsInfo.instagram, who = ig.accounts.map(a => "@" + a).join(", ");
+  const note = $("#ig-note");
+  note.classList.toggle("error", !!(ig.logged_in && ig.error));
+  note.textContent = !ig.logged_in ? `Instagram stories (${who}): off · run refer ig-login`
+    : ig.error ? `Instagram: ${ig.error}`
+    : ig.last_success ? `${who} stories checked ${new Date(ig.last_success).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+    : `${who} stories: first check runs shortly`;
 }
 
 function jobItem(j) {
@@ -289,7 +300,11 @@ function jobItem(j) {
   const add = el("button", { class: "add", title: "Add to the search queue" }, "+");
   add.onclick = () => queueJob(j);
   const li = el("li", { draggable: "true", title: "Drag into Past searches to find alumni" },
-    el("div", { class: "co" }, el("span", {}, j.company), el("span", { class: "age", title: "posted" }, age(j.posted))),
+    el("div", { class: "co" }, el("span", {}, j.company),
+      el("span", { class: "age", title: "posted" },
+        ...[j.source !== "Simplify" ? j.source : null, ...(j.also || [])].filter(Boolean)
+          .map(a => el("span", { class: "tag", title: `from @${a}'s Instagram story` }, "@" + a)),
+        age(j.posted))),
     el("div", { class: "title" }, j.title),
     el("div", { class: "row" }, el("span", { class: "meta", title: j.locations.join(" · ") }, locs), apply, add));
   li.ondragstart = e => {

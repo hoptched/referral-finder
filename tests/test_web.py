@@ -338,8 +338,8 @@ def test_queue_worker_runs_search_and_keeps_run_data(client, monkeypatch, tmp_pa
 def test_jobs_hides_searched_and_queued(client, monkeypatch, tmp_path):
     monkeypatch.setattr(web, "QUEUE_PATH", tmp_path / "queue.json")
     monkeypatch.setattr(web, "_queue_items", [{"id": "q", "url": "https://b.com/2", "simplify_id": None, "status": "queued"}])
-    jobs = [{"id": "1", "url": RUN["job"]["url"] + "?utm_source=Simplify"}, {"id": "2", "url": "https://b.com/2"},
-            {"id": "3", "url": "https://c.com/3"}]
+    jobs = [{"id": "1", "url": RUN["job"]["url"] + "?utm_source=Simplify", "posted": 3},
+            {"id": "2", "url": "https://b.com/2", "posted": 2}, {"id": "3", "url": "https://c.com/3", "posted": 1}]
 
     async def listings(cfg, refresh=False):
         return {"fetched_at": 0, "jobs": jobs}

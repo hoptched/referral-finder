@@ -186,6 +186,33 @@ def gmail_login(
     console.print(f"[green]Gmail connected as {account}. Token saved to {gmail.TOKEN_PATH}[/green]")
 
 
+@app.command("ig-login")
+def ig_login():
+    """Open a browser to log in to Instagram (use a spare account) and save the session."""
+    from referral import instagram
+
+    path = instagram.session_path(load_config())
+    console.print("A browser window will open. Log in to Instagram with a spare account (not your main one).")
+    console.print("You have 5 minutes. The window closes by itself once you're logged in.")
+    asyncio.run(instagram.create_session(path))
+    console.print(f"[green]Instagram session saved to {path}[/green]")
+
+
+@app.command("ig-fetch")
+def ig_fetch(force: bool = typer.Option(False, "--force", help="Check even if the last check was under a day ago")):
+    """Read today's Instagram stories and add the jobs they link to (runs at most once a day)."""
+    from referral import instagram
+
+    cfg = load_config()
+    if not force and not instagram.due(cfg):
+        state = instagram.load_state()
+        console.print(f"Not due yet (last check {state.get('last_run')}). Use --force to check anyway.")
+        return
+    state = asyncio.run(instagram.check(cfg, log=console.print))
+    if state.get("error"):
+        raise typer.Exit(1)
+
+
 @app.command("setup-check")
 def setup_check():
     """Check that everything needed to run is in place, and say how to fix what isn't."""
@@ -215,6 +242,9 @@ def setup_check():
         rows.append((f"resume ({resume.name})", resume.exists(), f"put your resume PDF at {resume}"))
         session = project_path(cfg["linkedin"]["session_path"])
         rows.append(("LinkedIn login (session.json)", session.exists(), "run: refer login"))
+        from referral import instagram
+        rows.append(("Instagram login (stories → jobs)", instagram.session_path(cfg).exists(),
+                     "optional: refer ig-login (with a spare account)"))
     rows.append(("template.md", project_path("template.md").exists(),
                  "optional: cp template.example.md template.md (the example is used until then)"))
     browsers = Path.home() / ".cache" / "ms-playwright"
@@ -233,7 +263,7 @@ def setup_check():
         table.add_row(mark, item, "" if ok else fix)
     console.print(table)
     if not (hunter or apollo):
-        console.print("[yellow]No email source set: everyone will get a LinkedIn invite instead of an email.[/yellow]")
+        console.print("[yellow]No email source set: you'll have to add emails by hand.[/yellow]")
     missing = [i for i, ok, _ in rows if not ok and (i in required or i.startswith("resume"))]
     if missing:
         console.print(f"[red]Not ready: {', '.join(missing)}[/red]")

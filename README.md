@@ -35,6 +35,20 @@ The top-right panel shows what's left and when it resets: **Email credits** (Hun
 
 The server only listens on `127.0.0.1`, because it uses your LinkedIn session and API keys. Only one search runs at a time.
 
+## Jobs from Instagram stories (optional)
+
+Some creators (by default **@zero2sudo**, set in `instagram.accounts`) post job application links in their Instagram stories every day. The site can read those stories once a day and add the jobs to **Jobs to apply to**, tagged **@zero2sudo**.
+
+1. **Use a spare Instagram account**, not your main one. Stories can't be seen logged out, scraping is against Instagram's terms, and Instagram can lock an account for it. The spare account should follow the creators you list.
+2. Run `.venv/bin/refer ig-login`. A browser opens; log in (2FA included, 5 minutes). The window closes by itself and the session is saved to `ig_session.json` (gitignored).
+3. That's it. While `refer web` is open, it checks every live story once a day (`instagram.check_every_hours`, default 24), a few minutes after startup and then every 24 hours. `.venv/bin/refer ig-fetch` runs the same check by hand (add `--force` to ignore the once-a-day limit).
+
+How a check works: three or four requests through the logged-in session (the account's profile, its live stories, each story's image). Each **new** story goes to Claude (`models.extract`, Haiku, about $0.002 a story) with its image and its link stickers, after following redirects like bit.ly. Claude says which links are job openings and reads the company, role and location. Only links that are actually on the story are kept, and a job with no link is dropped. Story jobs go through the same filters as the Simplify list (age, US only, no PhD-only). A job that's also on Simplify shows once, with both tags. The status line under the list shows the last check, or the problem (e.g. "session expired. Run: refer ig-login"). After a failure it waits 6 hours before trying again.
+
+Stories disappear after 24 hours, so **a day with the site closed is a day of stories missed**. To check even when the site isn't open, schedule `refer ig-fetch` yourself (e.g. Windows Task Scheduler running `wsl.exe -e /path/to/referral-finder/.venv/bin/refer ig-fetch` daily); it does nothing if a check already ran in the last 24 hours.
+
+Files: `.data/instagram.json` (jobs found, stories already read, last check), `.cache/instagram/<account>.json` (the last raw story data, for debugging).
+
 ## Getting started on a new machine
 
 About 30–45 minutes, most of it creating accounts. **Forking?** Everything personal stays out of git: your keys go in `.env`, your details in `config.yaml`, your email in `template.md`, and your resume, logins and search results in gitignored files. The repo only has `*.example` versions, so a fork starts clean and each person adds their own keys.
@@ -149,6 +163,8 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 | `refer setup-check` | Checks keys, config, resume, LinkedIn login, browser and Gmail, and says how to fix anything missing. |
 | `refer web [--port 8000]` | Starts the website (see above). |
 | `refer gmail-login` then `refer gmail-login --finish "<url>"` | Connects your Gmail for sending (see Gmail setup). |
+| `refer ig-login` | Opens a browser to log in to Instagram (use a spare account) for the story jobs. Saves `ig_session.json`. |
+| `refer ig-fetch [--force]` | Reads today's stories and adds the jobs they link to. At most once a day unless `--force`. |
 | `refer login` | Opens a visible browser to log in to LinkedIn (2FA included, 5 min limit). Saves cookies to `session.json`. |
 | `refer check` | Confirms the saved session is still logged in. |
 | `refer check --profile <url>` | Also scrapes one profile (its experience + education pages) and prints the name, education and top 3 jobs. Use it to test that scraping works. `https://www.linkedin.com/in/me/` tests on your own profile. |
@@ -191,6 +207,7 @@ referral/
   rank.py      # candidate scoring (card pass + profile pass) with reasons
   pipeline.py  # find flow shared by CLI and web: company → search → rank → verify
   web.py       # FastAPI app for the website (local only), incl. the search queue
+  instagram.py # jobs from Instagram stories (login, daily check, Claude reads each story)
   simplify.py  # open internships from SimplifyJobs' listings.json, for the "Jobs to apply to" column
   static/index.html  # the single-page UI
   emails.py    # Hunter email finder + company-format guess verified by Hunter

@@ -3,6 +3,7 @@ config.yaml
 template.md
 .env
 session.json
+ig_session.json
 credentials.json
 token.json
 *.pdf

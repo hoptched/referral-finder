@@ -6,6 +6,7 @@ keys, so it must never listen on a public interface.
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
@@ -24,7 +25,7 @@ from referral.emails import (EmailResult, HunterBudget, apollo_cycle, apollo_ena
                              find_email_apollo, guess_email, infer_pattern, tried_methods)
 from referral.jobs import clean_url, parse_job
 from referral.pipeline import find_candidates, write_run
-from referral import simplify, store
+from referral import instagram, simplify, store
 from referral.store import list_runs, load_run, run_path, save_run
 
 STATIC = Path(__file__).parent / "static"
@@ -33,7 +34,23 @@ STATIC = Path(__file__).parent / "static"
 @asynccontextmanager
 async def _lifespan(app):
     _kick()  # resume a queue left over from the last run
+    loop = None if os.environ.get("REFER_NO_BACKGROUND") else asyncio.create_task(_instagram_loop())
     yield
+    if loop:
+        loop.cancel()
+
+
+async def _instagram_loop():
+    """While the site is open: check Instagram stories once a day (see referral/instagram.py).
+    Nothing happens until `refer ig-login` has been run."""
+    while True:
+        try:
+            cfg = load_config()
+            if instagram.session_path(cfg).exists() and instagram.due(cfg):
+                await instagram.check(cfg, log=lambda line: None)
+        except Exception:
+            pass  # check() records its own errors; anything else (bad config) just waits for the next round
+        await asyncio.sleep(1800)
 
 
 app = FastAPI(title="referral-finder", lifespan=_lifespan)
@@ -370,16 +387,34 @@ async def edit_draft(run_id: str, body: DraftEdit):
 
 @app.get("/api/jobs")
 async def jobs(refresh: bool = False):
-    """Simplify's open listings, minus jobs that already have a search or are in the queue."""
+    """Simplify's open listings plus jobs from Instagram stories, minus jobs that already have a
+    search or are in the queue."""
+    cfg = load_config()
     try:
-        data = await simplify.listings(load_config(), refresh)
+        data = await simplify.listings(cfg, refresh)
     except Exception as e:
         raise HTTPException(502, f"Couldn't load the Simplify list: {type(e).__name__}: {e}")
+    # A story job that's also on Simplify shows once, as the Simplify job tagged with the account.
+    listed = {simplify.url_key(j["url"]): j for j in data["jobs"]}
+    jobs = [dict(j) for j in data["jobs"]]
+    by_key = {simplify.url_key(j["url"]): j for j in jobs}
+    for j in instagram.visible_jobs(cfg):
+        key = simplify.url_key(j["url"])
+        if key in listed:
+            by_key[key].setdefault("also", []).append(j["source"])
+        else:
+            jobs.append(j)
+            by_key[key] = j
+    jobs.sort(key=lambda j: j["posted"], reverse=True)
     runs = list_runs()
     taken_ids = {r["simplify_id"] for r in runs if r.get("simplify_id")} | {i["simplify_id"] for i in _queue()}
     taken_urls = {simplify.url_key(u) for u in [r["url"] for r in runs] + [i["url"] for i in _queue()]}
-    remaining = [j for j in data["jobs"] if j["id"] not in taken_ids and simplify.url_key(j["url"]) not in taken_urls]
-    return {"fetched_at": data["fetched_at"], "jobs": remaining, "hidden": len(data["jobs"]) - len(remaining)}
+    remaining = [j for j in jobs if j["id"] not in taken_ids and simplify.url_key(j["url"]) not in taken_urls]
+    ig = instagram.load_state()
+    return {"fetched_at": data["fetched_at"], "jobs": remaining, "hidden": len(jobs) - len(remaining),
+            "instagram": {"accounts": instagram.settings(cfg)["accounts"],
+                          "logged_in": instagram.session_path(cfg).exists(),
+                          "last_success": ig.get("last_success"), "error": ig.get("error")}}
 
 
 # Searches run one after another from this queue. It's saved in .data/queue.json so a

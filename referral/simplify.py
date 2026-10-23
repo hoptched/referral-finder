@@ -77,6 +77,7 @@ def trim(listings: list[dict], s: dict) -> list[dict]:
         "locations": x.get("locations") or [],
         "category": x.get("category"),
         "posted": x.get("date_posted") or x.get("date_updated") or 0,
+        "source": "Simplify",
     } for x in listings
         if x.get("active") and x.get("is_visible", True) and x.get("url")
         and terms & set(x.get("terms") or []) and x.get("category") in categories
