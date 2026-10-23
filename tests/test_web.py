@@ -28,7 +28,7 @@ def test_index_and_runs(client):
     assert "Referral Finder" in client.get("/").text
     runs = client.get("/api/runs").json()
     assert runs == [{"id": "acme-1", "company": "Acme", "title": "SWE Intern",
-                     "created_at": "2026-10-21T17:48:16", "candidates": 1, "selected": 0, "applied": False,
+                     "created_at": "2026-10-21T17:48:16", "candidates": 1, "selected": 0, "applied": False, "url": RUN["job"]["url"],
                      "outreach": {"drafted": 0, "invites": 0, "sent": 0, "done": False}}]
 
 

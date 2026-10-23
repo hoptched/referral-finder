@@ -18,7 +18,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding: 20px 24px 0; max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between;
+  header { padding: 20px 24px 0; max-width: 1320px; margin: 0 auto; display: flex; justify-content: space-between;
            align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .credits { display: grid; grid-template-columns: auto auto auto; gap: 2px 12px; font-size: 13px; background: var(--panel);
              border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
@@ -29,7 +29,7 @@
   .credits .hdr { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0; }
-  main { display: grid; grid-template-columns: 240px 1fr; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 20px 24px 48px; }
+  main { display: grid; grid-template-columns: 290px 1fr; gap: 24px; max-width: 1320px; margin: 0 auto; padding: 20px 24px 48px; }
   @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
 
   form { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
@@ -49,7 +49,11 @@
   .runs li.done { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .runs li.done.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
   .runs .co { font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .runs .co span { flex: 1; min-width: 0; }
+  .runs .co a { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+  .runs .co a:hover { text-decoration: underline; }
+  .runs .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .runs .date { color: var(--muted); }
+  .runs .sent { color: var(--ok); font-weight: 600; }
   .runs label.applied { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer; white-space: nowrap; }
   .runs label.applied input { margin: 0; cursor: pointer; }
   .runs .meta { color: var(--muted); font-size: 13px; }
@@ -182,9 +186,10 @@ async function loadRuns() {
   list.replaceChildren(...runs.map(r => el("li",
     { class: [current && current.id === r.id ? "active" : "", r.outreach.done ? "done" : ""].join(" ").trim(),
       onclick: () => openRun(r.id) },
-    el("div", { class: "co" }, el("span", {}, r.company), appliedBox(r)),
-    el("div", { class: "meta" }, r.title),
-    el("div", { class: "meta" }, `Searched ${searchedOn(r.created_at)} · ${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`),
+    el("div", { class: "co" }, postingLink(r), appliedBox(r)),
+    el("div", { class: "row" },
+      el("span", { class: "date" }, searchedOn(r.created_at)),
+      r.outreach.sent ? el("span", { class: "sent" }, `${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`) : null),
   )));
   if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
 }
@@ -209,6 +214,14 @@ function searchedOn(iso) {
   const d = new Date(iso), opts = { month: "short", day: "numeric" };
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
   return d.toLocaleDateString(undefined, opts);
+}
+
+// Company name linking to the job posting (new tab). Clicking it must not open the run.
+function postingLink(r) {
+  const a = el("a", { href: /^https?:\/\//.test(r.url) ? r.url : null, target: "_blank", rel: "noopener",
+                      title: r.title }, r.company);
+  a.onclick = e => e.stopPropagation();
+  return a;
 }
 
 // Mirrors store.outreach_status() for the run on screen.

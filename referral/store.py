@@ -97,6 +97,7 @@ def list_runs() -> list[dict]:
             "id": path.stem,
             "company": data["job"]["company"],
             "title": data["job"]["title"],
+            "url": data["job"]["url"],
             "created_at": data["created_at"],
             "candidates": len(data["candidates"]),
             "selected": len(data["selected"]),
