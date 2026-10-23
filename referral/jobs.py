@@ -314,6 +314,13 @@ def clean_url(url: str) -> str:
 
 
 async def parse_job(url: str, extract_model: str, session_path=None) -> JobPosting:
+    posting = await _parse_job(url, extract_model, session_path)
+    # Every source, not just the ATS APIs: "Amazon.com Services LLC" -> "Amazon.com Services".
+    posting.company = clean_company(posting.company)
+    return posting
+
+
+async def _parse_job(url: str, extract_model: str, session_path=None) -> JobPosting:
     url = clean_url(url)
     parts = urlsplit(url)
     if parts.netloc.endswith("simplify.jobs") and parts.path.startswith("/c/"):

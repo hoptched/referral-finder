@@ -73,6 +73,20 @@ def test_company_queries_and_pick():
     assert pick_company(no_exact, ["Zillow Group"])["slug"] == "zillow-fan"  # most followers
 
 
+def test_company_match_never_picks_an_unrelated_company():
+    from referral.jobs import clean_company
+    from referral.search import company_queries, pick_company
+
+    name = clean_company("Amazon.com Services LLC")
+    assert name == "Amazon.com Services"
+    assert company_queries(name) == ["Amazon.com Services", "Amazon"]
+    assert company_queries("Amazon Web Services") == ["Amazon Web Services", "Amazon Web"]  # exact match comes first
+    natura = {"slug": "natura", "name": "Natura &Co", "text": "Natura &Co\n2M followers"}
+    amazon = {"slug": "amazon", "name": "Amazon", "text": "Amazon\n35M followers"}
+    assert pick_company([natura], company_queries(name)) is None  # was picked before: most followers
+    assert pick_company([natura, amazon], company_queries(name))["slug"] == "amazon"
+
+
 def test_resolve_company_rejects_empty_name():
     import pytest
 

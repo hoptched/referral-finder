@@ -114,7 +114,8 @@ COMPANY_CARDS_JS = r"""() => {
   }
   return cards;
 }"""
-GENERIC_WORDS_RE = re.compile(r"\b(group|holdings?|technologies|technology|labs|company|international|global|corporation)\b", re.I)
+GENERIC_WORDS_RE = re.compile(
+    r"\b(group|holdings?|technologies|technology|labs|company|international|global|corporation|services)\b", re.I)
 FOLLOWERS_COUNT_RE = re.compile(r"([\d,.]+)\s*([KM]?)\s+followers", re.I)
 
 
@@ -127,16 +128,27 @@ def _followers(text: str) -> int:
 
 
 def company_queries(name: str) -> list[str]:
-    """'Zillow Group' -> ['Zillow Group', 'Zillow']: LinkedIn's company search is phrase-like."""
-    short = re.sub(r"\s+", " ", GENERIC_WORDS_RE.sub("", name)).strip(" ,&-")
+    """'Zillow Group' -> ['Zillow Group', 'Zillow'], 'Amazon.com Services' -> [..., 'Amazon']:
+    LinkedIn's company search is phrase-like, and subsidiaries post under legal entity names."""
+    short = re.sub(r"\.com\b", "", name, flags=re.I)
+    short = re.sub(r"\s+", " ", GENERIC_WORDS_RE.sub("", short)).strip(" ,&-")
     return [name] + ([short] if short and short.lower() != name.lower() else [])
 
 
+def _brand(name: str) -> str:
+    """The word a company page's name must contain to count as a match: 'Amazon.com Services' -> 'amazon'."""
+    words = re.findall(r"[a-z0-9&]+", re.sub(r"\.com\b", "", name.lower()))
+    return words[0] if words else ""
+
+
 def pick_company(cards: list[dict], names: list[str]) -> Optional[dict]:
-    """Exact name match first, otherwise the most-followed result (the main page, not a subsidiary)."""
+    """Exact name match first, otherwise the most-followed result whose name contains the
+    company's first word (the main page, not a subsidiary). None if nothing resembles it:
+    picking an unrelated big company (e.g. Natura for "Amazon.com Services") is worse than failing."""
     wanted = {n.lower() for n in names}
     exact = [c for c in cards if c["name"].lower() in wanted]
-    pool = exact or cards
+    brand = _brand(names[0])
+    pool = exact or [c for c in cards if brand and re.search(rf"\b{re.escape(brand)}", c["name"].lower())]
     return max(pool, key=lambda c: _followers(c["text"]), default=None)
 
 
@@ -154,7 +166,8 @@ async def _find_company_url(page: Page, name: str) -> str:
             return f"https://www.linkedin.com/company/{pick_company(exact, queries)['slug']}/"
     best = pick_company(all_cards, queries)
     if best is None:
-        raise LookupError(f"No LinkedIn company found for {name!r}")
+        raise LookupError(f"No LinkedIn company page found that matches {name!r}. Run it from the command line "
+                          "with the right page: refer find <job url> --company-url <linkedin company URL>")
     return f"https://www.linkedin.com/company/{best['slug']}/"
 
 
