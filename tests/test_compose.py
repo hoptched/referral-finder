@@ -6,7 +6,6 @@ def test_template_sections_and_comment_stripped():
     t = load_template()
     assert "{short_title}" in t.subject
     assert "{blurb}" in t.body and "{job_link}" in t.body and "{application_email}" in t.body
-    assert "{first_name}" in t.invitation
     assert "Placeholders:" not in t.instructions  # lives in the stripped <!-- --> comment
 
 
@@ -28,14 +27,6 @@ def test_email_patterns():
     assert infer_pattern("Rita Jones", "rj1234@x.com") is None
     assert _parts("Ken(Yukun) Jiang") == ("ken", "jiang")
     assert _apply("{first}{l}", "sam", "sample") == "sams"
-
-
-def test_invitation_fits_linkedin_limit():
-    # Worst realistic fill: long names. Free accounts allow 200 characters.
-    t = load_template()
-    note = _fill(t.invitation, {"first_name": "Christopher", "class_year_short": "28", "school_short": "Cornell",
-                                "short_title": "Software Engineer Intern", "company": "LinkedIn"})
-    assert len(note) <= 200, len(note)
 
 
 def test_hunter_budget_blocks_overspend(monkeypatch):

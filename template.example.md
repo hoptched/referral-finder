@@ -9,8 +9,6 @@ Placeholders: {first_name} (the person you're writing to) {my_name} {my_first_na
 
 Claude writes only {personal_line} and {blurb}, following the Instructions section;
 everything else is filled in exactly.
-Invitation = the LinkedIn connection note for people without an email. Free accounts
-allow 200 characters; the website shows a counter.
 -->
 
 # Subject
@@ -35,10 +33,6 @@ Thanks so much for your time either way!
 
 Best,
 {my_name}
-
-# Invitation
-
-Hi {first_name}! I'm a {school_short} '{class_year_short} student and just applied for the {short_title} role at {company}. Would love to connect and ask you a quick question about it.
 
 # Instructions
 

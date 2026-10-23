@@ -73,19 +73,16 @@ def load_run(run_id: str):
 
 
 def outreach_status(run: dict) -> dict:
-    """How far outreach got. "Done" = everyone selected has an email draft or a LinkedIn invite."""
+    """How far outreach got. "Done" = everyone selected has been looked up, and everyone
+    with an email has a draft."""
     selected = run.get("selected", [])
-    drafts, invites, sent = run.get("drafts", {}), run.get("invitations", {}), run.get("sent", {})
-    emails = run.get("emails", {})
-    has_email = {u for u in selected if (emails.get(u) or {}).get("email")}
-    ready = [u for u in selected if u in drafts or u in invites]
-    # Old runs have drafts for people without an email; those count as LinkedIn outreach now.
-    emailed = [u for u in ready if u in drafts and u in has_email]
+    drafts, sent, emails = run.get("drafts", {}), run.get("sent", {}), run.get("emails", {})
+    has_email = [u for u in selected if (emails.get(u) or {}).get("email")]
     return {
-        "drafted": len(emailed),
-        "invites": len(ready) - len(emailed),
+        "drafted": sum(u in drafts for u in has_email),
+        "no_email": sum(u in emails for u in selected) - len(has_email),
         "sent": sum(u in sent for u in selected),
-        "done": bool(selected) and len(ready) == len(selected),
+        "done": bool(selected) and all(u in emails for u in selected) and all(u in drafts for u in has_email),
     }
 
 
@@ -102,6 +99,7 @@ def list_runs() -> list[dict]:
             "candidates": len(data["candidates"]),
             "selected": len(data["selected"]),
             "applied": data.get("applied", False),
+            "simplify_id": data.get("simplify_id"),
             "outreach": outreach_status(data),
         })
     return runs

@@ -24,7 +24,6 @@ JOB_DESCRIPTION_LIMIT = 8000  # characters; postings are mostly boilerplate past
 class Template(BaseModel):
     subject: str
     body: str
-    invitation: str
     instructions: str
 
 
@@ -35,51 +34,10 @@ class _Written(BaseModel):
     short_title: str  # role without location/season/req-number noise, for the subject line
 
 
-class JobNames(BaseModel):
-    short_title: str  # e.g. "Software Engineer Intern"
-    company: str  # display name, e.g. "OpenAI"
-
-
-async def job_names(job: dict, model: str) -> JobNames:
-    """Short role and company names for the LinkedIn invite (one cheap call per job)."""
-    response = await client().messages.parse(
-        model=model,
-        max_tokens=16000,
-        output_config={"effort": "low"},
-        messages=[{"role": "user", "content": (
-            f"Job posting title: {job['title']}\nCompany: {job['company']}\n\n"
-            "Return short_title: the role as a person would say it, without location, season, or "
-            "requisition numbers (e.g. \"Software Engineer Intern\"), and company: the company's usual "
-            "display name (fix capitalization like \"Openai\" → \"OpenAI\"; drop \"Group\"/\"Inc\" only if "
-            "people don't normally say it).")}],
-        output_format=JobNames,
-    )
-    log_usage("job_names", response)
-    return response.parsed_output
-
-
-def render_invitation(cfg: dict, names: dict, person_name: str) -> str:
-    """Fill the template's # Invitation mechanically (no Claude): for people without an email."""
-    me = cfg["me"]
-    return _fill(load_template().invitation, {
-        "first_name": first_name(person_name),
-        "my_name": me["name"],
-        "my_first_name": first_name(me["name"]),
-        "school_short": school_short(me["school"]),
-        "major": me["major"],
-        "class_year": me["class_year"],
-        "class_year_short": f"{int(me['class_year']) % 100:02d}",
-        "school": me["school"],
-        "short_title": names["short_title"],
-        "company": names["company"],
-    })
-
-
 class Draft(BaseModel):
     to: str | None
     subject: str
     body: str
-    invitation: str  # LinkedIn connection note
     short_title: str
     company: str
     generated_at: datetime
@@ -91,11 +49,11 @@ def load_template(path: Path = TEMPLATE_PATH) -> Template:
         path = EXAMPLE_TEMPLATE_PATH
     text = re.sub(r"<!--.*?-->", "", path.read_text(), flags=re.S)
     sections = dict(re.findall(r"^# (\w+)\s*\n(.*?)(?=^# \w+\s*$|\Z)", text, re.M | re.S))
-    missing = {"Subject", "Body", "Invitation", "Instructions"} - sections.keys()
+    missing = {"Subject", "Body", "Instructions"} - sections.keys()
     if missing:
         raise ValueError(f"template.md is missing section(s): {', '.join(sorted(missing))}")
     return Template(subject=sections["Subject"].strip(), body=sections["Body"].strip(),
-                    invitation=sections["Invitation"].strip(), instructions=sections["Instructions"].strip())
+                    instructions=sections["Instructions"].strip())
 
 
 def first_name(name: str) -> str:
@@ -200,7 +158,6 @@ Also return:
         to=to,
         subject=_fill(template.subject, values),
         body=_fill(template.body, values),
-        invitation=_fill(template.invitation, values),
         short_title=values["short_title"],
         company=values["company"],
         generated_at=datetime.now(),

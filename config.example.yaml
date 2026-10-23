@@ -50,3 +50,11 @@ apollo:
 models:
   compose: claude-sonnet-5-5
   extract: claude-haiku-5-5
+
+# The "Jobs to apply to" column: open internships from SimplifyJobs' GitHub list
+# (refreshed at most hourly). Jobs you've already searched or queued are hidden.
+simplify:
+  listings_url: https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json
+  terms: ["Summer 2027"]
+  # Simplify's categories: Software, AI/ML/Data, Hardware, Product, Quant
+  categories: ["Software", "Software Engineering", "AI/ML/Data", "Data Science, AI & Machine Learning"]

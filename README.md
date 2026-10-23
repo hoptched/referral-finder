@@ -1,12 +1,12 @@
 # referral-finder
 
-A small local website for asking alumni for job referrals. After you apply to a job, paste the job link. It:
+A small local website for asking alumni for job referrals. It lists open internships from [SimplifyJobs' list](https://github.com/SimplifyJobs/Summer2027-Internships); after you apply to one, drag it into the search queue (or paste any job link). It:
 
 1. reads the posting (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, LinkedIn, or any job page),
 2. finds alumni of **your school** who currently work at that company, via LinkedIn search, and ranks them,
 3. lets you click who to contact,
 4. looks up their work emails (Hunter.io, then Apollo.io),
-5. drafts a personal referral email for everyone with an email (Claude), and a LinkedIn connection note for everyone else,
+5. drafts a personal referral email for everyone with an email (Claude),
 6. sends the emails from your Gmail with your resume attached, only after you approve them.
 
 Everything runs on your own computer at `http://localhost:8000`. See [AGENTS.md](AGENTS.md) for the build log and design decisions.
@@ -17,17 +17,19 @@ Everything runs on your own computer at `http://localhost:8000`. See [AGENTS.md]
 .venv/bin/refer web          # then open http://localhost:8000 (works from Windows when running in WSL)
 ```
 
-1. Paste the job link and click **Find alumni**. Progress shows as it goes (about 1–3 minutes; slower the first time for a company, and when new profiles need checking).
-2. The people show up as cards, ranked. Each card has their title, class year, location, whether your school was confirmed on their profile, why they ranked where they did, and a link to their LinkedIn profile.
-3. **Click a card to select it.** Click again to unselect. Selections save immediately.
-4. Past searches are listed on the left. Opening one costs no LinkedIn traffic. Searches whose outreach is done (everyone selected has an email draft or a LinkedIn invite) are **green**. Each entry shows the company (click it to open the job posting in a new tab), the date you searched, and, in green, how many emails you've sent for it. Clicking **Outreach** on a finished search asks for confirmation first. Each search also has an **Applied** checkbox for keeping track of where you've applied. It saves right away, and searching the same job again keeps it.
-5. Open the **Outreach** tab. It's disabled until you've selected someone. Opening it automatically:
-   - looks up emails for selected people (Hunter, then Apollo; each method at most once per person, so reopening costs nothing),
-   - **drafts emails only for people whose email was found** (Sonnet), and
-   - fills a LinkedIn invite from `# Invitation` for everyone else (role and company short names come from one cheap Haiku call per job).
+The page has three columns: **Jobs to apply to**, **Past searches**, and the open search.
 
-   Layout: **Send all emails (N)** at the top; the **Email** column on the left (address and source badge, editable subject/body, Send / Test to me / Copy / Regenerate); the **LinkedIn** column on the right (editable invite with an x/200 counter, Copy invite, Open LinkedIn, and a "Found their email? Add it" box that moves the person to the Email column and drafts their email).
-   - **Send all emails** sends every email-column person who has a draft and hasn't been emailed yet. It shows one confirmation listing everyone, saves unsaved edits first, and waits 4s between emails. Each person can only be emailed once, across all searches.
+1. **Jobs to apply to** (far left) lists open internships from SimplifyJobs' GitHub list (`.github/scripts/listings.json`), newest first, filtered by `simplify.terms` and `simplify.categories` in `config.yaml` (default: Summer 2027; Software and AI/ML/Data). Each has its age, location, an **Apply ↗** link and a **+** button. The filter box searches company, role and location. The list is downloaded at most once an hour (cached in `.cache/simplify.json`); ↻ reloads it now. Jobs that already have a search, or are in the queue, are hidden (matched by Simplify ID, or by link ignoring tracking parameters).
+2. **Drag a job into Past searches** (or click **+**) to queue a search for alumni. You can also paste any job link at the top and click **Find alumni**, or drop a link dragged from another browser tab. Searches run one at a time, top of the queue first (about 1–3 minutes each; slower the first time for a company, and when new profiles need checking). Queued and running searches show above Past searches with their latest progress line; click one to see its full progress. A failed search stays there with **Retry** / **Remove**. The queue is saved in `.data/queue.json`, so restarting `refer web` picks it up again. A pasted link opens its results when its search finishes; dragged jobs just show up in Past searches.
+3. The people show up as cards, ranked. Each card has their title, class year, location, whether your school was confirmed on their profile, why they ranked where they did, and a link to their LinkedIn profile.
+4. **Click a card to select it.** Click again to unselect. Selections save immediately.
+5. Opening a past search costs no LinkedIn traffic. Searches whose outreach is done (everyone selected has been looked up, and everyone with an email has a draft) are **green**. Each entry shows the company (hover for the job title), the date you searched, and, in green, how many emails you've sent for it. The job posting link is at the top of an open search (**Open job posting ↗**). Clicking **Outreach** on a finished search asks for confirmation first. Each search also has an **Applied** checkbox for keeping track of where you've applied. It saves right away, and searching the same job again keeps it.
+6. Open the **Outreach** tab. It's disabled until you've selected someone. Opening it automatically:
+   - looks up emails for selected people (Hunter, then Apollo; each method at most once per person, so reopening costs nothing),
+   - **drafts emails only for people whose email was found** (Sonnet).
+
+   Layout: **Send all emails (N)** at the top, then a card per person with an email (address and source badge, editable subject/body, Send / Test to me / Copy / Regenerate), then **No email found**: each person there has a profile link and a "Found their email? Add it" box that drafts their email.
+   - **Send all emails** sends every person who has a draft and hasn't been emailed yet. It shows one confirmation listing everyone, saves unsaved edits first, and waits 4s between emails. Each person can only be emailed once, across all searches.
 
 The top-right panel shows what's left and when it resets: **Email credits** (Hunter + Apollo as one pool; hover for the breakdown; Hunter's reset date comes from its API, Apollo's from `apollo.reset_day`), LinkedIn profile checks left today (resets at midnight), Claude spend this month (resets on the 1st), and the Gmail account. Items running low turn red. It refreshes after searches, outreach loads and sends (`GET /api/credits`).
 
@@ -48,7 +50,7 @@ About 30–45 minutes, most of it creating accounts. **Forking?** Everything per
 |---|---|---|---|
 | LinkedIn | finding alumni (your normal account) | free | yes |
 | [Anthropic API](https://console.anthropic.com) | reading profiles (Haiku), writing emails (Sonnet) | pay-as-you-go, about $0.06 per job | yes |
-| [Hunter.io](https://hunter.io) | finding work emails | free plan: 50 credits/month | recommended (without any email source, everyone gets a LinkedIn invite) |
+| [Hunter.io](https://hunter.io) | finding work emails | free plan: 50 credits/month | recommended (without any email source, you can only add emails by hand) |
 | [Apollo.io](https://apollo.io) | second email source when Hunter misses | free plan: 75 credits/month | optional |
 | [Google Cloud](https://console.cloud.google.com) | sending through your Gmail | free | optional (without it, copy and paste emails) |
 
@@ -96,7 +98,7 @@ cp ~/path/to/your_resume.pdf resume.pdf     # gitignored; attached to emails and
 cp template.example.md template.md          # gitignored; your email, edit freely
 ```
 
-`template.md` has four sections: `# Subject`, `# Body` and `# Invitation` (the LinkedIn note) are filled in exactly as written; `# Instructions` guides the two parts Claude writes (a personal line and a short blurb about you). Until you create `template.md`, the example is used.
+`template.md` has three sections: `# Subject` and `# Body` are filled in exactly as written; `# Instructions` guides the two parts Claude writes (a personal line and a short blurb about you). Until you create `template.md`, the example is used.
 
 ### 6. Log in to LinkedIn (once)
 
@@ -136,7 +138,7 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 | `ANTHROPIC_API_KEY is missing` | Step 3. |
 | Search finds people at the wrong company | Paste the company's LinkedIn page into **LinkedIn company URL** and search again; it's remembered. |
 | "Gmail login expired" | Google Testing-mode logins last 7 days. Run the two `refer gmail-login` steps again. |
-| Email credits show red | Out of Hunter/Apollo credits this month; use the LinkedIn invites (free). |
+| Email credits show red | Out of Hunter/Apollo credits this month; add emails by hand under **No email found**. |
 | LinkedIn shows a CAPTCHA or "unusual activity" | Stop for a day; lower `linkedin.max_profiles_per_day` and `profiles_to_verify`. |
 | Profile checks come back empty | LinkedIn changed its pages: run `refer check --profile https://www.linkedin.com/in/me/` and see `referral/profiles.py`. |
 
@@ -188,7 +190,8 @@ referral/
   search.py    # company -> LinkedIn company IDs; alumni people search + result parsing
   rank.py      # candidate scoring (card pass + profile pass) with reasons
   pipeline.py  # find flow shared by CLI and web: company → search → rank → verify
-  web.py       # FastAPI app for the website (local only)
+  web.py       # FastAPI app for the website (local only), incl. the search queue
+  simplify.py  # open internships from SimplifyJobs' listings.json, for the "Jobs to apply to" column
   static/index.html  # the single-page UI
   emails.py    # Hunter email finder + company-format guess verified by Hunter
   compose.py   # template.md + Claude → draft email
@@ -289,8 +292,8 @@ Hunter's free plan has **50 credits a month, shared by searches and verification
 
 `referral/compose.py`, run from **Draft emails** / **Regenerate**.
 
-- `template.md` has four sections: `# Subject`, `# Body`, `# Invitation` (the LinkedIn connection note, ≤200 characters) and `# Instructions`. `<!-- comments -->` are ignored.
-- Placeholders are filled in exactly: `{first_name} {my_name} {application_email} {major} {class_year} {class_year_short} {school} {job_title} {short_title} {company} {job_link}`. The invitation uses only these, so it's fully under your control.
+- `template.md` has three sections: `# Subject`, `# Body` and `# Instructions`. `<!-- comments -->` and any other sections (e.g. an old `# Invitation`) are ignored.
+- Placeholders are filled in exactly: `{first_name} {my_name} {application_email} {major} {class_year} {class_year_short} {school} {job_title} {short_title} {company} {job_link}`.
 - Claude (`models.compose`, Sonnet 5.5) writes only `{personal_line}` and `{blurb}`, plus `{short_title}` and the company's proper display name. It follows `# Instructions` and gets the job description, the recipient's card and scraped profile, and your resume PDF.
 - LinkedIn's "You both went to / worked at …" sentence is removed from the recipient summary first, because it's written from your point of view and is often wrong ("worked at Cornell").
 - The request uses Sonnet 5.5 with the `fallbacks: "default"` server-side refusal fallback (beta `server-side-fallback-2026-07-01`). A refusal shows as an error.

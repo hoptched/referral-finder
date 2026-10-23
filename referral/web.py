@@ -1,11 +1,13 @@
-"""Local web UI: paste a job link, watch progress, click people to select them.
+"""Local web UI: queue jobs (dragged from the Simplify list or pasted), click people to select them.
 
 Runs on 127.0.0.1 only. It drives your LinkedIn session and reads your
 keys, so it must never listen on a public interface.
 """
 
 import asyncio
+import json
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -14,20 +16,27 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from referral.compose import compose, job_names, render_invitation
+from referral.compose import compose
 from referral.llm import usage_entries
 from referral.config import load_config, project_path, school_short
 from referral import gmail
 from referral.emails import (EmailResult, HunterBudget, apollo_cycle, apollo_enabled, hunter_enabled, apollo_used_this_cycle, find_email,
                              find_email_apollo, guess_email, infer_pattern, tried_methods)
-from referral.jobs import parse_job
+from referral.jobs import clean_url, parse_job
 from referral.pipeline import find_candidates, write_run
-from referral import store
+from referral import simplify, store
 from referral.store import list_runs, load_run, run_path, save_run
 
 STATIC = Path(__file__).parent / "static"
 
-app = FastAPI(title="referral-finder")
+
+@asynccontextmanager
+async def _lifespan(app):
+    _kick()  # resume a queue left over from the last run
+    yield
+
+
+app = FastAPI(title="referral-finder", lifespan=_lifespan)
 
 # LinkedIn work runs one at a time: a single browser session, and parallel
 # scraping is exactly what gets accounts flagged.
@@ -37,14 +46,16 @@ _linkedin_lock = asyncio.Lock()
 _run_lock = asyncio.Lock()
 # Check-send-log for real emails happens under one lock so a double click can't send twice.
 _send_lock = asyncio.Lock()
-_tasks: dict[str, dict] = {}
 DRAFT_CONCURRENCY = 3
 
 
-class FindRequest(BaseModel):
+class QueueRequest(BaseModel):
     url: str
     keywords: Optional[str] = None
     company_url: Optional[str] = None
+    simplify_id: Optional[str] = None  # set when dragged from the Simplify list
+    company: Optional[str] = None  # shown until the posting has been read
+    title: Optional[str] = None
 
 
 class Selection(BaseModel):
@@ -69,16 +80,10 @@ class SendRequest(BaseModel):
     test: bool = False  # True: send to the connected Gmail account itself, not logged as sent
 
 
-class InvitationEdit(BaseModel):
-    linkedin_url: str
-    text: str
-
-
 class DraftEdit(BaseModel):
     linkedin_url: str
     subject: str
     body: str
-    invitation: str
 
 
 def _load(run_id: str) -> dict:
@@ -86,7 +91,6 @@ def _load(run_id: str) -> dict:
         raise HTTPException(404, "Run not found")
     run.setdefault("emails", {})
     run.setdefault("drafts", {})
-    run.setdefault("invitations", {})
     return run
 
 
@@ -308,7 +312,7 @@ def _email_of(run: dict, url: str):
 @app.post("/api/runs/{run_id}/drafts")
 async def make_drafts(run_id: str, body: DraftRequest):
     """Write email drafts with Claude: one person (regenerate), or every selected person who has
-    an email address but no draft. People without an email are never drafted (LinkedIn route)."""
+    an email address but no draft. People without an email are never drafted."""
     cfg = load_config()
     run = _load(run_id)
     candidates = {c["result"]["linkedin_url"]: c for c in run["candidates"]}
@@ -316,7 +320,7 @@ async def make_drafts(run_id: str, body: DraftRequest):
         if body.linkedin_url not in candidates:
             raise HTTPException(400, "Unknown person")
         if not _email_of(run, body.linkedin_url):
-            raise HTTPException(400, "No email for that person; use the LinkedIn invite instead")
+            raise HTTPException(400, "No email for that person")
         targets = [body.linkedin_url]
     else:
         targets = [u for u in run["selected"] if u not in run["drafts"] and _email_of(run, u)]
@@ -337,17 +341,10 @@ async def make_drafts(run_id: str, body: DraftRequest):
     return {"drafts": run["drafts"]}
 
 
-@app.put("/api/runs/{run_id}/invitations")
-async def edit_invitation(run_id: str, body: InvitationEdit):
-    run = await _update_run(run_id, lambda r: r["invitations"].update({body.linkedin_url: body.text}))
-    return {"invitations": run["invitations"]}
-
-
 @app.post("/api/runs/{run_id}/outreach")
 async def prepare_outreach(run_id: str):
     """What opening the Outreach tab does: look up emails, then draft emails for people who have
-    one and write LinkedIn invites for people who don't. Each step only does missing work."""
-    cfg = load_config()
+    one. Each step only does missing work."""
     errors = []
     if not _load(run_id)["selected"]:
         raise HTTPException(400, "Select people first")
@@ -355,21 +352,6 @@ async def prepare_outreach(run_id: str):
         await lookup_emails(run_id)
     except HTTPException as e:
         errors.append(f"Email lookup: {e.detail}")
-
-    run = _load(run_id)
-    if "job_names" not in run:
-        try:
-            names = (await job_names(run["job"], cfg["models"]["extract"])).model_dump()
-        except Exception as e:  # fall back to the posting's own names
-            names = {"short_title": run["job"]["title"], "company": run["job"]["company"]}
-            errors.append(f"Short job name: {type(e).__name__}: {e}")
-        run = await _update_run(run_id, lambda r: r.update(job_names=names))
-    people = {c["result"]["linkedin_url"]: c["result"]["name"] for c in run["candidates"]}
-    invites = {u: render_invitation(cfg, run["job_names"], people[u])
-               for u in run["selected"] if not _email_of(run, u) and u not in run["invitations"]}
-    if invites:
-        await _update_run(run_id, lambda r: r["invitations"].update(invites))
-
     try:
         await make_drafts(run_id, DraftRequest())
     except HTTPException as e:
@@ -382,52 +364,138 @@ async def edit_draft(run_id: str, body: DraftEdit):
     def change(run):
         if body.linkedin_url not in run["drafts"]:
             raise HTTPException(404, "No draft for that person")
-        run["drafts"][body.linkedin_url].update(subject=body.subject, body=body.body, invitation=body.invitation,
-                                                edited=True)
+        run["drafts"][body.linkedin_url].update(subject=body.subject, body=body.body, edited=True)
     return {"drafts": (await _update_run(run_id, change))["drafts"]}
 
 
-@app.post("/api/find")
-async def start_find(body: FindRequest):
-    if _linkedin_lock.locked():
-        raise HTTPException(409, "A search is already running. Wait for it to finish.")
-    task_id = uuid.uuid4().hex
-    _tasks[task_id] = {"status": "running", "log": [], "run_id": None, "error": None}
-    asyncio.create_task(_run_find(task_id, body))
-    return {"task_id": task_id}
+@app.get("/api/jobs")
+async def jobs(refresh: bool = False):
+    """Simplify's open listings, minus jobs that already have a search or are in the queue."""
+    try:
+        data = await simplify.listings(load_config(), refresh)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load the Simplify list: {type(e).__name__}: {e}")
+    runs = list_runs()
+    taken_ids = {r["simplify_id"] for r in runs if r.get("simplify_id")} | {i["simplify_id"] for i in _queue()}
+    taken_urls = {simplify.url_key(u) for u in [r["url"] for r in runs] + [i["url"] for i in _queue()]}
+    remaining = [j for j in data["jobs"] if j["id"] not in taken_ids and simplify.url_key(j["url"]) not in taken_urls]
+    return {"fetched_at": data["fetched_at"], "jobs": remaining, "hidden": len(data["jobs"]) - len(remaining)}
 
 
-@app.get("/api/tasks/{task_id}")
-def get_task(task_id: str):
-    if (task := _tasks.get(task_id)) is None:
-        raise HTTPException(404, "Task not found")
-    return task
+# Searches run one after another from this queue. It's saved in .data/queue.json so a
+# restart doesn't lose it; finished items leave the queue (they're runs now).
+QUEUE_PATH = project_path(".data/queue.json")
+_queue_items: Optional[list[dict]] = None
+_finished: dict[str, str] = {}  # queue item id -> run id, so the page that pasted a link can open it
+_worker: Optional[asyncio.Task] = None
 
 
-async def _run_find(task_id: str, body: FindRequest):
-    task = _tasks[task_id]
-    log = task["log"].append
-    async with _linkedin_lock:
+def _queue() -> list[dict]:
+    global _queue_items
+    if _queue_items is None:
         try:
-            cfg = load_config()
-            log("Reading the job posting…")
-            posting = await parse_job(body.url, cfg["models"]["extract"], project_path(cfg["linkedin"]["session_path"]))
-            log(f"{posting.title} @ {posting.company}")
-            for warning in posting.warnings:
-                log(f"⚠ {warning}")
-            candidates = await find_candidates(cfg, posting, body.company_url, body.keywords, log=log)
-            # Re-running a job keeps the people already picked, their emails and drafts.
-            run_id = run_path(posting.company, posting.url).stem
-            async with _run_lock:
-                previous = load_run(run_id) or {}
-                write_run(posting, candidates, previous.get("selected", []))
-            if previous.get("emails") or previous.get("drafts") or previous.get("applied"):
-                await _update_run(run_id, lambda r: r.update(emails=previous.get("emails", {}),
-                                                             drafts=previous.get("drafts", {}),
-                                                             applied=previous.get("applied", False)))
-            task["run_id"] = run_id
-            log("Done.")
-            task["status"] = "done"
-        except Exception as e:  # surfaced in the UI instead of a silent dead task
-            task["status"] = "error"
-            task["error"] = f"{type(e).__name__}: {e}"
+            _queue_items = json.loads(QUEUE_PATH.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            _queue_items = []
+        for item in _queue_items:  # interrupted by a restart: run it again
+            if item["status"] == "running":
+                item.update(status="queued", log=[])
+    return _queue_items
+
+
+def _save_queue() -> None:
+    QUEUE_PATH.parent.mkdir(exist_ok=True)
+    QUEUE_PATH.write_text(json.dumps(_queue(), indent=2))
+
+
+def _kick() -> None:
+    global _worker
+    if (_worker is None or _worker.done()) and any(i["status"] == "queued" for i in _queue()):
+        _worker = asyncio.create_task(_work())
+
+
+@app.get("/api/queue")
+def get_queue():
+    _kick()
+    return {"items": _queue(), "finished": _finished}
+
+
+@app.post("/api/queue")
+async def add_to_queue(body: QueueRequest):
+    url = clean_url(body.url)
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "That doesn't look like a job link")
+    if any(simplify.url_key(i["url"]) == simplify.url_key(url) for i in _queue()):
+        raise HTTPException(409, "That job is already in the queue")
+    item = {"id": uuid.uuid4().hex, **body.model_dump(), "url": url, "status": "queued", "log": [], "error": None,
+            "added_at": datetime.now().isoformat()}
+    _queue().append(item)
+    _save_queue()
+    _kick()
+    return item
+
+
+def _queue_item(item_id: str) -> dict:
+    if (item := next((i for i in _queue() if i["id"] == item_id), None)) is None:
+        raise HTTPException(404, "Not in the queue")
+    return item
+
+
+@app.delete("/api/queue/{item_id}")
+def remove_from_queue(item_id: str):
+    item = _queue_item(item_id)
+    if item["status"] == "running":
+        raise HTTPException(409, "That search is running; wait for it to finish")
+    _queue().remove(item)
+    _save_queue()
+    return {"items": _queue()}
+
+
+@app.post("/api/queue/{item_id}/retry")
+def retry_queue_item(item_id: str):
+    item = _queue_item(item_id)
+    if item["status"] == "error":
+        item.update(status="queued", error=None, log=[])
+        _save_queue()
+        _kick()
+    return item
+
+
+async def _work():
+    while item := next((i for i in _queue() if i["status"] == "queued"), None):
+        item.update(status="running", log=[])
+        _save_queue()
+        try:
+            _finished[item["id"]] = await _run_find(item)
+            _queue().remove(item)
+        except Exception as e:  # shown on the queue item instead of a silent dead search
+            item.update(status="error", error=f"{type(e).__name__}: {e}")
+        _save_queue()
+
+
+async def _run_find(item: dict) -> str:
+    def log(line):
+        item["log"].append(line)
+        _save_queue()
+
+    async with _linkedin_lock:
+        cfg = load_config()
+        log("Reading the job posting…")
+        posting = await parse_job(item["url"], cfg["models"]["extract"], project_path(cfg["linkedin"]["session_path"]))
+        item.update(company=posting.company, title=posting.title)
+        log(f"{posting.title} @ {posting.company}")
+        for warning in posting.warnings:
+            log(f"⚠ {warning}")
+        candidates = await find_candidates(cfg, posting, item.get("company_url"), item.get("keywords"), log=log)
+        # Re-running a job keeps everything else about it: picks, emails, drafts, sends, Applied.
+        run_id = run_path(posting.company, posting.url).stem
+        async with _run_lock:
+            previous = load_run(run_id) or {}
+            write_run(posting, candidates, previous.get("selected", []))
+        kept = {k: v for k, v in previous.items() if k not in ("created_at", "job", "candidates", "selected")}
+        if item.get("simplify_id"):
+            kept["simplify_id"] = item["simplify_id"]
+        if kept:
+            await _update_run(run_id, lambda r: r.update(kept))
+        log("Done.")
+        return run_id

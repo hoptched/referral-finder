@@ -18,7 +18,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding: 20px 24px 0; max-width: 1320px; margin: 0 auto; display: flex; justify-content: space-between;
+  header { padding: 20px 24px 0; max-width: 1640px; margin: 0 auto; display: flex; justify-content: space-between;
            align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .credits { display: grid; grid-template-columns: auto auto auto; gap: 2px 12px; font-size: 13px; background: var(--panel);
              border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
@@ -29,8 +29,42 @@
   .credits .hdr { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0; }
-  main { display: grid; grid-template-columns: 290px 1fr; gap: 24px; max-width: 1320px; margin: 0 auto; padding: 20px 24px 48px; }
-  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  main { display: grid; grid-template-columns: 300px 270px minmax(0, 1fr); gap: 24px; max-width: 1640px; margin: 0 auto;
+         padding: 20px 24px 48px; align-items: start; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  /* Jobs to apply to (Simplify list) */
+  .jobs-col { position: sticky; top: 12px; display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
+  @media (max-width: 1100px) { .jobs-col { position: static; max-height: 480px; } }
+  .col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  button.icon { background: none; color: var(--muted); padding: 0 4px; font-size: 16px; font-weight: 400; }
+  button.icon:hover { color: var(--text); }
+  #jobs-filter { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+                 color: var(--text); font: inherit; font-size: 14px; margin-bottom: 4px; }
+  .jobs { list-style: none; padding: 0 2px 0 0; margin: 6px 0 0; overflow-y: auto; flex: 1; }
+  .jobs li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px;
+             background: var(--panel); cursor: grab; }
+  .jobs li:hover { border-color: var(--muted); }
+  .jobs li.dragging { opacity: .5; }
+  .jobs .co { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .jobs .age { color: var(--muted); font-weight: 400; font-size: 12px; white-space: nowrap; }
+  .jobs .title { font-size: 14px; }
+  .jobs .row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 2px; }
+  .jobs .row .meta { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jobs a.apply { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .jobs button.add { padding: 0 8px; font-size: 15px; line-height: 22px; border-radius: 6px; }
+
+  /* Past searches doubles as the drop target */
+  .runs-col { border-radius: 10px; }
+  .drop-hint { border: 1.5px dashed var(--line); border-radius: 8px; padding: 8px 10px; color: var(--muted);
+               font-size: 13px; text-align: center; margin-bottom: 8px; }
+  .runs-col.over .drop-hint { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .runs.queue li { cursor: default; border: 1px solid var(--line); background: var(--panel); margin-bottom: 6px; }
+  .runs.queue li.clickable { cursor: pointer; }
+  .runs.queue .status { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .runs.queue .status.running::before { content: "● "; color: var(--accent); }
+  .runs.queue .error { font-size: 13px; }
+  .runs.queue .actions { display: flex; gap: 6px; margin-top: 4px; }
 
   form { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
   form .inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -49,8 +83,7 @@
   .runs li.done { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .runs li.done.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
   .runs .co { font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .runs .co a { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
-  .runs .co a:hover { text-decoration: underline; }
+  .runs .co > span:first-child { flex: 1; min-width: 0; }
   .runs .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
   .runs .date { color: var(--muted); }
   .runs .sent { color: var(--ok); font-weight: 600; }
@@ -69,6 +102,7 @@
          display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
   .job .title { font-weight: 600; }
   .job a { color: var(--accent); }
+  .job .right { display: flex; align-items: center; gap: 16px; }
   .count { font-weight: 600; white-space: nowrap; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
@@ -105,18 +139,12 @@
                                    background: var(--bg); color: var(--text); font: inherit; }
   .person textarea { min-height: 260px; resize: vertical; line-height: 1.5; margin-top: 8px; }
   .hint { color: var(--muted); font-size: 12px; }
-  .person h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 0; }
-  .person textarea.note { min-height: 112px; }
-  .counter.over { color: var(--bad); font-weight: 600; }
   .tab:disabled { opacity: .4; cursor: not-allowed; }
   .sendbar { text-align: center; margin: 4px 0 18px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
   button.big { font-size: 17px; padding: 12px 28px; }
-  .columns { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; align-items: start; }
-  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
-  .col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  .col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 8px; }
   .person.done { opacity: .75; }
-  .li-card { padding: 12px 14px; }
-  .li-card .head { flex-direction: column; gap: 0; }
+  .person.slim { padding: 10px 14px; }
   .add-email { width: 100%; margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px;
                background: transparent; color: var(--text); font: inherit; font-size: 13px; }
   a.button-link { color: var(--accent); font-weight: 600; font-size: 14px; }
@@ -127,13 +155,24 @@
 <header>
   <div>
     <h1>Referral Finder</h1>
-    <p class="sub">Paste a job you applied to. Click the <span id="school">fellow</span> alumni you want to ask for a referral.</p>
+    <p class="sub">Drag a job you applied to into Past searches (or paste a link). Click the <span id="school">fellow</span> alumni you want to ask for a referral.</p>
   </div>
   <div class="credits" id="credits"></div>
 </header>
 <main>
-  <aside>
+  <aside class="jobs-col">
+    <div class="col-head">
+      <h2>Jobs to apply to <span id="jobs-count"></span></h2>
+      <button class="icon" id="jobs-refresh" title="Reload the list from Simplify">↻</button>
+    </div>
+    <input type="search" id="jobs-filter" placeholder="Filter: company, role, location">
+    <div class="hint" id="jobs-note">Loading Simplify's list…</div>
+    <ul class="jobs" id="jobs"></ul>
+  </aside>
+  <aside class="runs-col" id="dropzone">
     <h2>Past searches</h2>
+    <div class="drop-hint">Drag a job here to find alumni</div>
+    <ul class="runs queue" id="queue"></ul>
     <ul class="runs" id="runs"></ul>
   </aside>
   <section>
@@ -145,7 +184,7 @@
       <button id="go">Find alumni</button>
     </form>
     <div class="log" id="log" hidden></div>
-    <div id="run"><p class="empty">Paste a job link to start, or open a past search.</p></div>
+    <div id="run"><p class="empty">Drag a job into Past searches, paste a link, or open a past search.</p></div>
   </section>
 </main>
 <script>
@@ -186,7 +225,7 @@ async function loadRuns() {
   list.replaceChildren(...runs.map(r => el("li",
     { class: [current && current.id === r.id ? "active" : "", r.outreach.done ? "done" : ""].join(" ").trim(),
       onclick: () => openRun(r.id) },
-    el("div", { class: "co" }, postingLink(r), appliedBox(r)),
+    el("div", { class: "co" }, el("span", { title: r.title }, r.company), appliedBox(r)),
     el("div", { class: "row" },
       el("span", { class: "date" }, searchedOn(r.created_at)),
       r.outreach.sent ? el("span", { class: "sent" }, `${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`) : null),
@@ -216,31 +255,155 @@ function searchedOn(iso) {
   return d.toLocaleDateString(undefined, opts);
 }
 
-// Company name linking to the job posting (new tab). Clicking it must not open the run.
-function postingLink(r) {
-  const a = el("a", { href: /^https?:\/\//.test(r.url) ? r.url : null, target: "_blank", rel: "noopener",
-                      title: r.title }, r.company);
-  a.onclick = e => e.stopPropagation();
-  return a;
+const safeUrl = u => /^https?:\/\//.test(u || "") ? u : null;
+
+// ---- Jobs to apply to: Simplify's open listings minus jobs already searched or queued ----
+let JOBS = [], jobsInfo = null, draggedJob = null;
+
+async function loadJobs(refresh = false) {
+  $("#jobs-note").textContent = refresh ? "Reloading from Simplify…" : $("#jobs-note").textContent;
+  try {
+    jobsInfo = await api(`/api/jobs${refresh ? "?refresh=true" : ""}`);
+    JOBS = jobsInfo.jobs;
+    renderJobs();
+  } catch (err) { $("#jobs-note").textContent = err.message; }
+}
+
+function age(posted) {
+  const days = Math.max(0, Math.floor((Date.now() / 1000 - posted) / 86400));
+  return days < 30 ? `${days}d` : `${Math.floor(days / 30)}mo`;
+}
+
+function renderJobs() {
+  const q = $("#jobs-filter").value.trim().toLowerCase();
+  const shown = JOBS.filter(j => !q || `${j.company} ${j.title} ${j.locations.join(" ")}`.toLowerCase().includes(q));
+  $("#jobs-count").textContent = `(${JOBS.length})`;
+  const mins = Math.round((Date.now() / 1000 - jobsInfo.fetched_at) / 60);
+  $("#jobs-note").textContent = (q ? `${shown.length} match · ` : "") +
+    `updated ${mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`}` +
+    (jobsInfo.hidden ? ` · ${jobsInfo.hidden} already searched` : "");
+  $("#jobs").replaceChildren(...shown.map(jobItem));
+}
+
+function jobItem(j) {
+  const locs = j.locations.length > 1 ? `${j.locations[0]} +${j.locations.length - 1}` : (j.locations[0] || "");
+  const apply = el("a", { class: "apply", href: safeUrl(j.url), target: "_blank", rel: "noopener", draggable: "false" }, "Apply ↗");
+  const add = el("button", { class: "add", title: "Add to the search queue" }, "+");
+  add.onclick = () => queueJob(j);
+  const li = el("li", { draggable: "true", title: "Drag into Past searches to find alumni" },
+    el("div", { class: "co" }, el("span", {}, j.company), el("span", { class: "age", title: "posted" }, age(j.posted))),
+    el("div", { class: "title" }, j.title),
+    el("div", { class: "row" }, el("span", { class: "meta", title: j.locations.join(" · ") }, locs), apply, add));
+  li.ondragstart = e => {
+    draggedJob = j;
+    e.dataTransfer.setData("text/plain", j.url);
+    e.dataTransfer.effectAllowed = "copy";
+    li.classList.add("dragging");
+  };
+  li.ondragend = () => { draggedJob = null; li.classList.remove("dragging"); };
+  return li;
+}
+
+async function queueJob(j) {
+  try {
+    await api("/api/queue", { method: "POST", body: JSON.stringify({
+      url: j.url, simplify_id: j.id, company: j.company, title: j.title }) });
+  } catch (err) { alert(err.message); return; }
+  JOBS = JOBS.filter(x => x.id !== j.id);
+  jobsInfo.hidden += 1;
+  renderJobs();
+  loadQueue();
+}
+
+// Past searches is the drop target. Also accepts a job link dragged in from another tab.
+const dropzone = $("#dropzone");
+dropzone.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; dropzone.classList.add("over"); };
+dropzone.ondragleave = e => { if (!dropzone.contains(e.relatedTarget)) dropzone.classList.remove("over"); };
+dropzone.ondrop = async e => {
+  e.preventDefault();
+  dropzone.classList.remove("over");
+  if (draggedJob) return queueJob(draggedJob);
+  const url = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")).split("\n")[0].trim();
+  if (!safeUrl(url)) return;
+  try { await api("/api/queue", { method: "POST", body: JSON.stringify({ url }) }); loadQueue(); }
+  catch (err) { alert(err.message); }
+};
+
+// ---- Search queue: one LinkedIn search at a time, shown above Past searches ----
+let QUEUE = [], queueTimer = null, logItem = null;
+const openWhenDone = new Set();  // queue ids pasted on this page: open the run when it finishes
+
+async function loadQueue() {
+  const before = new Set(QUEUE.map(i => i.id));
+  let res;
+  try { res = await api("/api/queue"); } catch (err) { return; }
+  QUEUE = res.items;
+  renderQueue();
+  const finished = [...before].filter(id => !QUEUE.some(i => i.id === id));
+  if (finished.length) {
+    loadRuns(); loadCredits();
+    for (const id of finished) {
+      if (openWhenDone.delete(id) && res.finished[id]) { $("#log").hidden = true; openRun(res.finished[id]); }
+    }
+  }
+  clearTimeout(queueTimer);
+  if (QUEUE.some(i => i.status !== "error")) queueTimer = setTimeout(loadQueue, 2000);
+}
+
+function renderQueue() {
+  const waiting = QUEUE.filter(i => i.status === "queued");
+  $("#queue").replaceChildren(...QUEUE.map(i => {
+    const remove = el("button", { class: "secondary small", onclick: async (e) => {
+      e.stopPropagation();
+      try { QUEUE = (await api(`/api/queue/${i.id}`, { method: "DELETE" })).items; } catch (err) { return alert(err.message); }
+      renderQueue(); loadJobs();
+    } }, "Remove");
+    let status;
+    if (i.status === "running") status = el("div", { class: "status running" }, i.log[i.log.length - 1] || "Starting…");
+    else if (i.status === "queued") status = el("div", { class: "status" }, `Queued${waiting.length > 1 ? ` · #${waiting.indexOf(i) + 1}` : ""}`);
+    else status = [el("div", { class: "error" }, i.error),
+      el("div", { class: "actions" },
+        el("button", { class: "small", onclick: async (e) => {
+          e.stopPropagation();
+          await api(`/api/queue/${i.id}/retry`, { method: "POST" }).catch(err => alert(err.message));
+          loadQueue();
+        } }, "Retry"), remove)];
+    const li = el("li", { class: i.log.length ? "clickable" : "", title: i.log.length ? "Show progress" : "" },
+      el("div", { class: "co" }, el("span", {}, i.company || new URL(i.url).hostname)),
+      i.title ? el("div", { class: "meta" }, i.title) : null,
+      status,
+      i.status === "queued" ? el("div", { class: "actions" }, remove) : null);
+    if (i.log.length) li.onclick = () => { logItem = i.id; showLog(); };
+    return li;
+  }));
+  showLog();
+}
+
+// Full progress of the queue item last clicked (or pasted), in the main area.
+function showLog() {
+  const i = QUEUE.find(x => x.id === logItem);
+  if (!i) return;
+  const log = $("#log");
+  log.hidden = false;
+  log.replaceChildren(...i.log.map(line => el("div", { class: line.startsWith("⚠") ? "warning" : "" }, line)),
+                      i.error ? el("div", { class: "error" }, i.error) : null);
 }
 
 // Mirrors store.outreach_status() for the run on screen.
 function outreachStatus(run) {
-  const sel = run.selected || [], d = run.drafts || {}, inv = run.invitations || {}, sent = run.sent || {};
-  const em = run.emails || {};
-  const ready = sel.filter(u => u in d || u in inv);
-  const emailed = ready.filter(u => u in d && em[u] && em[u].email);
+  const sel = run.selected || [], d = run.drafts || {}, sent = run.sent || {}, em = run.emails || {};
+  const withEmail = sel.filter(u => em[u] && em[u].email);
   return {
-    drafted: emailed.length,
-    invites: ready.length - emailed.length,
+    drafted: withEmail.filter(u => u in d).length,
+    no_email: sel.filter(u => u in em).length - withEmail.length,
     sent: sel.filter(u => u in sent).length,
-    done: sel.length > 0 && sel.every(u => u in d || u in inv),
+    done: sel.length > 0 && sel.every(u => u in em) && withEmail.every(u => u in d),
   };
 }
 
 function outreachSummary(o) {
   const parts = [`${o.drafted} email${o.drafted === 1 ? "" : "s"} drafted`];
-  if (o.invites) parts.push(`${o.invites} LinkedIn`);
+  if (o.no_email) parts.push(`${o.no_email} without an email`);
   if (o.sent) parts.push(`${o.sent} sent`);
   return "✓ " + parts.join(" · ");
 }
@@ -264,10 +427,11 @@ function renderRun() {
   const header = el("div", { class: "job" },
     el("div", {},
       el("div", { class: "title" }, `${job.title}`),
-      el("div", { class: "meta" }, `${job.company}${job.location ? " · " + job.location : ""} · `,
-        el("a", { href: job.url, target: "_blank", rel: "noopener" }, "posting")),
+      el("div", { class: "meta" }, `${job.company}${job.location ? " · " + job.location : ""}`),
     ),
-    el("div", { class: "count", id: "count" }, `${chosen.size} selected`),
+    el("div", { class: "right" },
+      el("a", { class: "button-link", href: safeUrl(job.url), target: "_blank", rel: "noopener" }, "Open job posting ↗"),
+      el("div", { class: "count", id: "count" }, `${chosen.size} selected`)),
   );
   const warnings = (job.warnings || []).map(w => el("div", { class: "warning" }, `⚠ ${w}`));
   const tabs = el("div", { class: "tabs" },
@@ -294,8 +458,8 @@ function renderRun() {
   $("#run").replaceChildren(header, ...warnings, tabs, body);
 }
 
-// Opening Outreach looks up emails, drafts emails for people who have one, and writes
-// LinkedIn invites for everyone else. The server only does work that's still missing.
+// Opening Outreach looks up emails and drafts emails for people who have one.
+// The server only does work that's still missing.
 async function openOutreach() {
   const runId = current.id;
   tab = "outreach";
@@ -333,15 +497,11 @@ function outreach() {
       el("div", { class: "status", id: "status" }),
       outreachState.errors.map(e => el("div", { class: "error" }, e)),
     ),
-    el("div", { class: "columns" },
-      el("div", { class: "col" },
-        el("h2", {}, `Email (${withEmail.length})`),
-        withEmail.length ? withEmail.map(u => emailCard(byUrl[u], emails[u], drafts[u], sent[u]))
-                         : el("p", { class: "hint" }, "No emails found for these people. Use LinkedIn →")),
-      el("div", { class: "col" },
-        el("h2", {}, `LinkedIn (${withoutEmail.length})`),
-        withoutEmail.length ? withoutEmail.map(u => linkedinCard(byUrl[u], emails[u]))
-                            : el("p", { class: "hint" }, "Everyone has an email."))),
+    el("div", { class: "col" },
+      withEmail.length ? withEmail.map(u => emailCard(byUrl[u], emails[u], drafts[u], sent[u]))
+                       : el("p", { class: "hint" }, "No emails found for these people."),
+      withoutEmail.length ? [el("h2", {}, `No email found (${withoutEmail.length})`),
+                             ...withoutEmail.map(u => noEmailCard(byUrl[u], emails[u]))] : null),
   );
 }
 
@@ -357,7 +517,6 @@ function emailBadge(e) {
   return el("span", { class: "badge " + (ok ? "ok" : "") }, `Hunter ${e.score ?? "?"}/100 · ${e.status || "unverified"}`);
 }
 
-const NOTE_LIMIT = 200;  // LinkedIn connection-note limit on free accounts
 let fieldRefs = {};  // url -> {subject, text} for the email drafts currently on screen
 
 function copyButton(label, getText) {
@@ -375,7 +534,7 @@ function personHead(r) {
     el("span", { class: "hint" }, r.headline || ""));
 }
 
-// Changing or adding an email moves the person between columns, so re-run outreach prep.
+// Changing or adding an email moves the person into the email list, so re-run outreach prep.
 async function setEmail(url, value) {
   await api(`/api/runs/${current.id}/emails`, { method: "PUT", body: JSON.stringify({ linkedin_url: url, email: value }) });
   await openOutreach();
@@ -397,7 +556,7 @@ function emailCard(c, e, d, sent) {
   text.value = d.body;
   fieldRefs[url] = { subject, text };
   const saveDraft = () => save(`/api/runs/${current.id}/drafts`,
-    { linkedin_url: url, subject: subject.value, body: text.value, invitation: d.invitation || "" }, "drafts", false);
+    { linkedin_url: url, subject: subject.value, body: text.value }, "drafts", false);
   subject.onchange = saveDraft; text.onchange = saveDraft;
   parts.push(
     el("div", { class: "field" }, el("label", {}, "Subject"), subject),
@@ -413,28 +572,13 @@ function emailCard(c, e, d, sent) {
   return el("div", { class: "person" + (sent ? " done" : "") }, parts);
 }
 
-function linkedinCard(c, e) {
+function noEmailCard(c, e) {
   const r = c.result, url = r.linkedin_url;
-  const note = el("textarea", { class: "note" });
-  note.value = (current.data.invitations || {})[url] || "";
-  const counter = el("span", { class: "hint counter" });
-  const count = () => {
-    counter.textContent = `${note.value.length}/${NOTE_LIMIT}`;
-    counter.classList.toggle("over", note.value.length > NOTE_LIMIT);
-  };
-  count();
-  note.oninput = count;
-  note.onchange = () => save(`/api/runs/${current.id}/invitations`, { linkedin_url: url, text: note.value }, "invitations", false);
-  const add = el("input", { type: "email", placeholder: "Found their email? Add it", class: "add-email" });
+  const add = el("input", { type: "email", placeholder: "Found their email? Add it to write a draft", class: "add-email" });
   add.onchange = () => add.value.trim() && setEmail(url, add.value.trim());
-  return el("div", { class: "person li-card" },
+  return el("div", { class: "person slim" },
     personHead(r),
-    note,
-    el("div", { class: "toolbar", style: "margin:6px 0 0" },
-      copyButton("Copy invite", () => note.value),
-      el("a", { class: "button-link", href: url, target: "_blank", rel: "noopener" }, "Open LinkedIn ↗"),
-      counter),
-    el("div", { class: "hint", style: "margin-top:4px" }, e && e.error ? `Email: ${e.error}` : ""),
+    el("div", { class: "hint", style: "margin-top:4px" }, e && e.error ? e.error : "Not looked up yet"),
     add,
   );
 }
@@ -444,7 +588,7 @@ function sendButtons(url, e, subject, text, d, sent) {
   const to = e.email;
   // Unsaved edits would otherwise be skipped: fields save on blur, which may not have fired yet.
   const flush = () => api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
-    linkedin_url: url, subject: subject.value, body: text.value, invitation: d.invitation || "" }) });
+    linkedin_url: url, subject: subject.value, body: text.value }) });
   const test = el("button", { class: "secondary small", onclick: async (ev) => {
     await flush();
     await busy(ev.target, "Sending…", async () => {
@@ -478,8 +622,7 @@ async function sendAll(button, urls) {
         const f = fieldRefs[url];
         if (f) {  // save edits that haven't been blurred yet
           current.data.drafts = (await api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
-            linkedin_url: url, subject: f.subject.value, body: f.text.value,
-            invitation: current.data.drafts[url].invitation || "" }) })).drafts;
+            linkedin_url: url, subject: f.subject.value, body: f.text.value }) })).drafts;
         }
         const res = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url }) });
         current.data.sent = res.run_sent;
@@ -517,7 +660,7 @@ async function loadCredits() {
                      : c.hunter.enabled ? `Hunter unavailable (${c.hunter.error})` : "Hunter off (no key)") +
     (c.apollo.enabled ? ` · Apollo ${c.apollo.left}/${c.apollo.limit}` : " · Apollo off");
   if (!c.hunter.enabled && !c.apollo.enabled) {
-    row("Email lookup", "off", false, "", "add HUNTER_API_KEY and/or APOLLO_API_KEY to .env; until then everyone gets a LinkedIn invite");
+    row("Email lookup", "off", false, "", "add HUNTER_API_KEY and/or APOLLO_API_KEY to .env; until then you can only add emails by hand");
   } else {
     row("Email credits", `${left} / ${total}`, left < 10, resets, breakdown);
   }
@@ -602,27 +745,29 @@ async function toggle(url, node) {
 $("#find").onsubmit = async (e) => {
   e.preventDefault();
   const log = $("#log");
-  $("#go").disabled = true;
-  log.hidden = false;
-  log.replaceChildren(el("div", {}, "Starting…"));
   try {
-    const { task_id } = await api("/api/find", { method: "POST", body: JSON.stringify({ url: $("#url").value, company_url: $("#company-url").value.trim() || null }) });
-    while (true) {
-      await new Promise(r => setTimeout(r, 1500));
-      const t = await api(`/api/tasks/${task_id}`);
-      log.replaceChildren(...t.log.map(line => el("div", { class: line.startsWith("⚠") ? "warning" : "" }, line)));
-      if (t.status === "done") { await openRun(t.run_id); loadCredits(); break; }
-      if (t.status === "error") { log.append(el("div", { class: "error" }, t.error)); break; }
-    }
+    const item = await api("/api/queue", { method: "POST", body: JSON.stringify({
+      url: $("#url").value, company_url: $("#company-url").value.trim() || null }) });
+    openWhenDone.add(item.id);
+    logItem = item.id;
+    $("#url").value = ""; $("#company-url").value = "";
+    log.hidden = false;
+    log.replaceChildren(el("div", {}, "Added to the queue. It opens here when the search is done."));
+    loadQueue();
+    loadJobs();
   } catch (err) {
-    log.append(el("div", { class: "error" }, err.message));
-  } finally {
-    $("#go").disabled = false;
+    log.hidden = false;
+    log.replaceChildren(el("div", { class: "error" }, err.message));
   }
 };
 
+$("#jobs-filter").oninput = () => jobsInfo && renderJobs();
+$("#jobs-refresh").onclick = () => loadJobs(true);
+
 loadSettings().then(loadRuns);
 loadCredits();
+loadJobs();
+loadQueue();
 </script>
 </body>
 </html>
