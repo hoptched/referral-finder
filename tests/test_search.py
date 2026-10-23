@@ -94,3 +94,34 @@ def test_resolve_company_rejects_empty_name():
 
     with pytest.raises(ValueError):
         asyncio.run(resolve_company(None, "  "))
+
+
+def test_find_company_skips_stub_exact_match(monkeypatch):
+    """Real results (2026-10-23): "Amazon.com Services" has an exact-name stub page with 183 followers."""
+    import asyncio
+
+    from referral import search
+
+    results = {
+        "Amazon.com Services": [{"slug": "amazon-devices-and-services", "name": "Amazon.com Services", "text": "183 followers"},
+                                {"slug": "natura", "name": "Natura", "text": "3.4M followers"}],
+        "Amazon": [{"slug": "amazon", "name": "Amazon", "text": "37M followers"},
+                   {"slug": "amazon-web-services", "name": "Amazon Web Services (AWS)", "text": "11M followers"}],
+    }
+    current = {}
+
+    async def goto(page, url):
+        from urllib.parse import parse_qs, urlsplit
+        current["q"] = parse_qs(urlsplit(url).query)["keywords"][0]
+
+    class Page:
+        async def evaluate(self, js):
+            return results[current["q"]]
+
+    async def no_sleep(*a):
+        pass
+
+    monkeypatch.setattr(search, "_goto", goto)
+    monkeypatch.setattr(search.asyncio, "sleep", no_sleep)
+    url = asyncio.run(search._find_company_url(Page(), "Amazon.com Services"))
+    assert url == "https://www.linkedin.com/company/amazon/"

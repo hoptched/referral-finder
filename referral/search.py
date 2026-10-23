@@ -116,6 +116,7 @@ COMPANY_CARDS_JS = r"""() => {
 }"""
 GENERIC_WORDS_RE = re.compile(
     r"\b(group|holdings?|technologies|technology|labs|company|international|global|corporation|services)\b", re.I)
+MAIN_PAGE_FOLLOWERS = 10_000  # below this, an exact-name match may be a stub page
 FOLLOWERS_COUNT_RE = re.compile(r"([\d,.]+)\s*([KM]?)\s+followers", re.I)
 
 
@@ -161,8 +162,10 @@ async def _find_company_url(page: Page, name: str) -> str:
         await _goto(page, "https://www.linkedin.com/search/results/companies/?" + urlencode({"keywords": query}))
         cards = await page.evaluate(COMPANY_CARDS_JS)
         all_cards += cards
-        exact = [c for c in cards if c["name"].lower() in {q.lower() for q in queries}]
-        if exact:
+        exact = [c for c in all_cards if c["name"].lower() in {q.lower() for q in queries}]
+        # A small exact match can be a stub page named after a legal entity ("Amazon.com Services",
+        # 183 followers): keep going to the short name and take the most-followed exact match.
+        if exact and (i == len(queries) - 1 or _followers(pick_company(exact, queries)["text"]) >= MAIN_PAGE_FOLLOWERS):
             return f"https://www.linkedin.com/company/{pick_company(exact, queries)['slug']}/"
     best = pick_company(all_cards, queries)
     if best is None:
