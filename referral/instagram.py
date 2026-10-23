@@ -2,9 +2,10 @@
 
 Stories need a logged-in account and vanish after 24 hours, so a check runs once a
 day (from `refer web` while it's open, or `refer ig-fetch` from a scheduler). Each
-check makes three or four requests through the same browser session Instagram's
-own web app uses: the account's profile (for its user id), its live stories, and
-each story's image. Link stickers come straight from the story data; Claude
+check opens the account's story page in the logged-in browser, like a person
+tapping their story, and reads the story data Instagram's own page loads (no
+direct API calls: those got the account rate limited), plus each story's image.
+Link stickers come straight from the story data; Claude
 (models.extract, with the image) decides which links are job applications and
 reads the company and role. Stories already processed are never sent again.
 
@@ -16,6 +17,7 @@ import asyncio
 import base64
 import json
 import random
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -33,12 +35,14 @@ from referral.llm import client, log_usage
 STATE_PATH = project_path(".data/instagram.json")
 RAW_DIR = project_path(".cache/instagram")  # last fetch's raw story data, for debugging the parser
 LOGIN_TIMEOUT_S = 300
-# The public app id instagram.com's own JavaScript sends with every API call.
-IG_APP_ID = "936619743392459"
 DEFAULTS = {"accounts": ["zero2sudo"], "session_path": "ig_session.json", "check_every_hours": 24}
 
 
 class InstagramLoginNeeded(RuntimeError):
+    pass
+
+
+class InstagramRateLimited(RuntimeError):
     pass
 
 
@@ -76,28 +80,6 @@ class Story(BaseModel):
     taken_at: int
     links: list[str]  # link-sticker URLs, Instagram's l.instagram.com wrapper removed
     image: Optional[bytes] = None  # the story's picture (or a video's cover frame), JPEG
-
-
-async def _api(page, path: str) -> dict:
-    """GET an instagram.com API path from inside the logged-in page, like the web app does."""
-    result = await page.evaluate(
-        """async ([path, appId]) => {
-            const r = await fetch(path, { credentials: "include",
-              headers: { "x-ig-app-id": appId, "x-requested-with": "XMLHttpRequest" } });
-            return { status: r.status, url: r.url, text: await r.text() };
-        }""",
-        [path, IG_APP_ID],
-    )
-    if result["status"] in (401, 403) or "/accounts/login" in result["url"]:
-        raise InstagramLoginNeeded("Instagram session expired. Run: refer ig-login")
-    if result["status"] == 429:
-        raise RuntimeError("Instagram is rate limiting this account; skipping until the next daily check.")
-    if result["status"] != 200:
-        raise RuntimeError(f"Instagram API {path.split('?')[0]} returned HTTP {result['status']}")
-    try:
-        return json.loads(result["text"])
-    except json.JSONDecodeError:  # an HTML login/challenge page instead of JSON
-        raise InstagramLoginNeeded("Instagram asked for a login or security check. Run: refer ig-login")
 
 
 def unwrap(url: str) -> str:
@@ -139,33 +121,99 @@ def _image_url(item: dict) -> Optional[str]:
     return (good[0] if good else sized[-1])["url"] if sized else None
 
 
+def _story_id(item: dict) -> str:
+    # pk is the story's own id; "id" is "<pk>_<owner id>".
+    return str(item.get("pk") or str(item["id"]).split("_")[0])
+
+
+def story_items(payload, account: str) -> list[dict]:
+    """Story items for `account` anywhere in a JSON response from Instagram's page. An item
+    has taken_at and image_versions2; it belongs to the user of the reel holding it (the
+    viewer also preloads other accounts' stories, which are skipped)."""
+    found: dict[str, dict] = {}
+
+    def username(node) -> Optional[str]:
+        user = node.get("user") or node.get("owner")
+        return user.get("username") if isinstance(user, dict) else None
+
+    def walk(node, owner: Optional[str]):
+        if isinstance(node, dict):
+            owner = username(node) or owner
+            if "taken_at" in node and "image_versions2" in node and (node.get("pk") or node.get("id")):
+                if owner is None or owner.lower() == account.lower():
+                    found[_story_id(node)] = node
+            for v in node.values():
+                walk(v, owner)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, owner)
+
+    walk(payload, None)
+    return list(found.values())
+
+
+def _parse_json(text: str):
+    text = text.removeprefix("for (;;);").strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:  # some responses are several JSON objects, one per line
+        out = []
+        for line in text.splitlines():
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        return out
+
+
 async def fetch_stories(path: Path, account: str) -> list[Story]:
     if not path.exists():
         raise InstagramLoginNeeded(f"No Instagram session at {path.name}. Run: refer ig-login")
     async with BrowserManager(headless=True, user_agent=USER_AGENT) as browser:
         await browser.load_session(str(path))
         page = browser.page
-        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
+        payloads, statuses, pending = [], [], []
+
+        async def grab(response):
+            url = response.url
+            if not urlsplit(url).netloc.endswith("instagram.com") or not ("/graphql" in url or "/api/" in url):
+                return
+            statuses.append(response.status)
+            try:
+                payloads.append(_parse_json(await response.text()))
+            except Exception:
+                pass
+
+        page.on("response", lambda r: pending.append(asyncio.ensure_future(grab(r))))
+        await page.goto(f"https://www.instagram.com/stories/{account}/", wait_until="domcontentloaded")
+        await asyncio.sleep(random.uniform(4, 7))
         if "/accounts/login" in page.url or "/challenge" in page.url:
             raise InstagramLoginNeeded("Instagram session expired. Run: refer ig-login")
-        await asyncio.sleep(random.uniform(2, 5))
-        profile = await _api(page, f"/api/v1/users/web_profile_info/?username={account}")
-        user_id = profile["data"]["user"]["id"]
-        await asyncio.sleep(random.uniform(2, 5))
-        reels = await _api(page, f"/api/v1/feed/reels_media/?reel_ids={user_id}")
-        items = ((reels.get("reels") or {}).get(user_id) or {}).get("items") \
-            or next(iter(reels.get("reels_media") or []), {}).get("items") or []
+        # Instagram asks "View story?" before playing it.
+        button = page.get_by_role("button", name=re.compile(r"view stor", re.I))
+        if await button.count():
+            await button.first.click()
+            await asyncio.sleep(random.uniform(4, 7))
+        await asyncio.gather(*pending, return_exceptions=True)
         RAW_DIR.mkdir(parents=True, exist_ok=True)
-        (RAW_DIR / f"{account}.json").write_text(json.dumps(reels, indent=1))
+        (RAW_DIR / f"{account}.json").write_text(json.dumps({"page": page.url, "statuses": statuses,
+                                                             "responses": payloads}, indent=1))
+        if 429 in statuses:
+            raise InstagramRateLimited("Instagram is rate limiting this account; trying again in a day.")
+        items = {}
+        for payload in payloads:
+            for item in story_items(payload, account):
+                items[_story_id(item)] = item
         stories = []
-        for item in items:
+        for item in items.values():
             image = None
             if url := _image_url(item):
                 response = await page.request.get(url)
                 image = await response.body() if response.ok else None
-            stories.append(Story(id=str(item.get("pk") or item["id"]), account=account,
+            stories.append(Story(id=_story_id(item), account=account,
                                  taken_at=int(item.get("taken_at") or time.time()),
                                  links=story_links(item), image=image))
+            await asyncio.sleep(random.uniform(0.5, 1.5))
         await browser.save_session(str(path))  # keep the refreshed cookies
         return stories
 
@@ -259,13 +307,15 @@ def save_state(state: dict) -> None:
 
 def due(cfg: dict, state: Optional[dict] = None) -> bool:
     """A check is due when the last successful one is older than check_every_hours. After a
-    failure, wait 6 hours before trying again (a login problem won't fix itself sooner)."""
+    failure, wait 6 hours before trying again (a login problem won't fix itself sooner), or
+    a full day after a rate limit (retrying sooner makes Instagram stricter)."""
     state = state or load_state()
     now = time.time()
     hours = settings(cfg)["check_every_hours"]
     ok = state.get("last_success") and now - datetime.fromisoformat(state["last_success"]).timestamp() < hours * 3600
+    wait_hours = 24 if "rate limit" in (state.get("error") or "") else 6
     retry_wait = state.get("error") and state.get("last_run") and \
-        now - datetime.fromisoformat(state["last_run"]).timestamp() < 6 * 3600
+        now - datetime.fromisoformat(state["last_run"]).timestamp() < wait_hours * 3600
     return not ok and not retry_wait
 
 
@@ -296,7 +346,8 @@ async def check(cfg: dict, log=print) -> dict:
         state.update(error=None, last_success=state["last_run"], last_added=added)
         log(f"{added} new job{'s' if added != 1 else ''} added")
     except Exception as e:
-        state["error"] = f"{type(e).__name__}: {e}" if not isinstance(e, InstagramLoginNeeded) else str(e)
+        known = isinstance(e, (InstagramLoginNeeded, InstagramRateLimited))
+        state["error"] = str(e) if known else f"{type(e).__name__}: {e}"
         log(f"Instagram check failed: {state['error']}")
     save_state(state)
     return state

@@ -122,3 +122,31 @@ def test_jobs_endpoint_merges_story_jobs(monkeypatch, ig_state, tmp_path):
     out = TestClient(web.app).get("/api/jobs").json()
     assert [(j["id"], j.get("also")) for j in out["jobs"]] == [("ig-2", None), ("s1", ["zero2sudo"])]
     assert out["instagram"]["last_success"] == "2026-10-22T09:00:00"
+
+
+def test_story_items_from_page_responses():
+    item = lambda pk, **kw: {"pk": pk, "id": f"{pk}_42", "taken_at": 1, "image_versions2": {"candidates": []}} | kw
+    payload = {"data": {"xdt_api__v1__feed__reels_media": {"reels_media": [
+        {"user": {"username": "zero2sudo"}, "items": [item("1"), item("2")]},
+        {"user": {"username": "someone_else"}, "items": [item("3")]},  # preloaded next reel
+    ]}}}
+    assert [i["pk"] for i in instagram.story_items(payload, "zero2sudo")] == ["1", "2"]
+    # the same story seen again as "<pk>_<owner>" without pk is one story, not two
+    dup = {"items": [{"id": "1_42", "taken_at": 1, "image_versions2": {}, "user": {"username": "zero2sudo"}}]}
+    ids = {instagram._story_id(i) for p in (payload, dup) for i in instagram.story_items(p, "zero2sudo")}
+    assert ids == {"1", "2"}
+    assert instagram._parse_json('for (;;);{"a": 1}') == {"a": 1}
+
+
+def test_rate_limit_waits_a_day(monkeypatch, ig_state):
+    async def fetch(path, account):
+        raise instagram.InstagramRateLimited("Instagram is rate limiting this account; trying again in a day.")
+
+    monkeypatch.setattr(instagram, "fetch_stories", fetch)
+    cfg = load_config()
+    state = asyncio.run(instagram.check(cfg, log=lambda line: None))
+    assert state["error"].startswith("Instagram is rate limiting")
+    state["last_run"] = (datetime.now() - timedelta(hours=7)).isoformat()
+    assert not instagram.due(cfg, state)  # a login error would retry by now
+    state["last_run"] = (datetime.now() - timedelta(hours=25)).isoformat()
+    assert instagram.due(cfg, state)
