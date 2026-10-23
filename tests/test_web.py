@@ -374,3 +374,25 @@ def test_simplify_us_and_phd_filters():
             base | {"id": "ms-phd", "degrees": ["Master's", "PhD"]}]
     assert sorted(j["id"] for j in trim(rows, DEFAULTS)) == ["both", "ms-phd", "ok"]
     assert len(trim(rows, DEFAULTS | {"us_only": False, "exclude_phd": False})) == 6
+
+
+def test_retry_starts_the_worker(client, monkeypatch, tmp_path):
+    """Regression: retry/get_queue were plain `def` endpoints, so _kick ran in a thread with no
+    event loop; a retried search stayed "queued" forever."""
+    monkeypatch.setattr(web, "QUEUE_PATH", tmp_path / "queue.json")
+    monkeypatch.setattr(web, "_queue_items", [{"id": "q1", "url": "https://acme.com/job/1", "status": "error",
+                                               "error": "LookupError: x", "log": ["x"], "simplify_id": None}])
+    ran = []
+
+    async def find(item):
+        ran.append(item["id"])
+        return "acme-1"
+
+    monkeypatch.setattr(web, "_run_find", find)
+    with client:
+        assert client.post("/api/queue/q1/retry").status_code == 200
+        for _ in range(50):
+            if not client.get("/api/queue").json()["items"]:
+                break
+            time.sleep(0.05)
+    assert ran == ["q1"]

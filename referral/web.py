@@ -444,13 +444,15 @@ def _save_queue() -> None:
 
 
 def _kick() -> None:
+    # Must run on the event loop: every caller is an async endpoint (a plain `def` endpoint runs
+    # in a worker thread, where create_task fails and a retried search would sit queued forever).
     global _worker
     if (_worker is None or _worker.done()) and any(i["status"] == "queued" for i in _queue()):
         _worker = asyncio.create_task(_work())
 
 
 @app.get("/api/queue")
-def get_queue():
+async def get_queue():
     _kick()
     return {"items": _queue(), "finished": _finished}
 
@@ -477,7 +479,7 @@ def _queue_item(item_id: str) -> dict:
 
 
 @app.delete("/api/queue/{item_id}")
-def remove_from_queue(item_id: str):
+async def remove_from_queue(item_id: str):
     item = _queue_item(item_id)
     if item["status"] == "running":
         raise HTTPException(409, "That search is running; wait for it to finish")
@@ -487,7 +489,7 @@ def remove_from_queue(item_id: str):
 
 
 @app.post("/api/queue/{item_id}/retry")
-def retry_queue_item(item_id: str):
+async def retry_queue_item(item_id: str):
     item = _queue_item(item_id)
     if item["status"] == "error":
         item.update(status="queued", error=None, log=[])

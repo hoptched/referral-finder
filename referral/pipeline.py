@@ -18,6 +18,7 @@ from referral.search import resolve_company, search_alumni
 from referral.store import cached_profile, record_scrape, run_path, save_profile, save_run, scrapes_today
 
 Log = Callable[[str], None]
+FEW_RESULTS = 5  # below this many keyword matches, also search without the keyword
 
 
 async def find_candidates(
@@ -40,6 +41,13 @@ async def find_candidates(
         log(f"Using LinkedIn company page {company.linkedin_url} (wrong? refer find <job url> --company-url <right page>)")
         log(f"Searching {cfg['me']['school']} alumni at {posting.company} for “{keywords}”…")
         results = await search_alumni(browser.page, company, cfg["me"]["linkedin_school_id"], keywords, pages)
+        if len(results) < FEW_RESULTS:
+            # Few alumni match the role keyword (e.g. no software engineers at an insurer): list
+            # every alumnus there too; the ranking still puts relevant roles first.
+            log(f"Only {len(results)} match “{keywords}”. Searching all {cfg['me']['school']} alumni at {posting.company}…")
+            known = {r.linkedin_url for r in results}
+            more = await search_alumni(browser.page, company, cfg["me"]["linkedin_school_id"], None, pages)
+            results += [r for r in more if r.linkedin_url not in known]
         log(f"Found {len(results)} alumni. Ranking…")
         candidates = rank([score_card(r, cfg["target_roles"], posting.team, cfg["me"]["school"]) for r in results])
 
