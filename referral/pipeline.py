@@ -36,8 +36,8 @@ async def find_candidates(
 
     async with open_session(project_path(li["session_path"]), li["headless"]) as browser:
         log(f"Finding {posting.company} on LinkedIn…")
-        company = await resolve_company(browser.page, posting.company, company_url)
-        log(f"Using LinkedIn company page {company.linkedin_url} (wrong? paste the right one in “LinkedIn company URL” and search again)")
+        company = await resolve_company(browser.page, posting.company, company_url, cfg["models"]["extract"])
+        log(f"Using LinkedIn company page {company.linkedin_url} (wrong? refer find <job url> --company-url <right page>)")
         log(f"Searching {cfg['me']['school']} alumni at {posting.company} for “{keywords}”…")
         results = await search_alumni(browser.page, company, cfg["me"]["linkedin_school_id"], keywords, pages)
         log(f"Found {len(results)} alumni. Ranking…")

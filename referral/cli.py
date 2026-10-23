@@ -106,7 +106,7 @@ def search(
 
 async def _search(cfg, company_name, company_url, keywords, pages):
     async with open_session(_session_path(), cfg["linkedin"]["headless"]) as browser:
-        company = await resolve_company(browser.page, company_name, company_url)
+        company = await resolve_company(browser.page, company_name, company_url, cfg["models"]["extract"])
         console.print(f"LinkedIn company: {company.linkedin_url} (ids {', '.join(company.ids)})")
         results = await search_alumni(browser.page, company, cfg["me"]["linkedin_school_id"], keywords, pages)
     console.print(f"\n{len(results)} alumni matching {keywords!r}:\n")

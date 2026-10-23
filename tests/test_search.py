@@ -125,3 +125,48 @@ def test_find_company_skips_stub_exact_match(monkeypatch):
     monkeypatch.setattr(search.asyncio, "sleep", no_sleep)
     url = asyncio.run(search._find_company_url(Page(), "Amazon.com Services"))
     assert url == "https://www.linkedin.com/company/amazon/"
+
+
+def test_rank_prefers_main_page_over_same_named_agent_page():
+    from referral.search import company_queries, rank_companies
+
+    queries = company_queries("Allstate Insurance", everyday="Allstate")
+    assert queries == ["Allstate", "Allstate Insurance"]
+    cards = [{"slug": "mary-barnard-insurance", "name": "Allstate Insurance", "text": "120 followers"},
+             {"slug": "allstate", "name": "Allstate", "text": "1.1M followers"},
+             {"slug": "arity", "name": "Arity, an Allstate company", "text": "60K followers"}]
+    assert [c["slug"] for c in rank_companies(cards, queries)] == ["allstate", "mary-barnard-insurance", "arity"]
+    # The everyday name rescues legal names whose first word matches nothing on LinkedIn.
+    legal = "AFMIC American Family Mutual Insurance Company, S.I."
+    afi = [{"slug": "american-family-insurance", "name": "American Family Insurance", "text": "150K followers"}]
+    assert rank_companies(afi, company_queries(legal)) == []
+    assert rank_companies(afi, company_queries(legal, "American Family Insurance"))[0]["slug"] == "american-family-insurance"
+
+
+def test_resolve_skips_pages_without_employee_list(monkeypatch, tmp_path):
+    import asyncio
+
+    from referral import search
+
+    monkeypatch.setattr(search, "CACHE_PATH", tmp_path / "companies.json")
+
+    async def no_sleep(*a):
+        pass
+
+    async def urls(page, name, everyday=None):
+        return ["https://www.linkedin.com/company/mary-barnard-insurance/", "https://www.linkedin.com/company/allstate/"]
+
+    async def ids(page, url):
+        if "allstate" not in url:
+            raise LookupError(f"No employee search link on {url}")
+        return ["1", "2"]
+
+    async def name(n, model):
+        return "Allstate"
+
+    monkeypatch.setattr(search.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(search, "_find_company_urls", urls)
+    monkeypatch.setattr(search, "_company_ids", ids)
+    monkeypatch.setattr(search, "everyday_name", name)
+    company = asyncio.run(search.resolve_company(None, "Allstate Insurance", model="m"))
+    assert company.linkedin_url == "https://www.linkedin.com/company/allstate/" and company.ids == ["1", "2"]

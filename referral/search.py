@@ -128,12 +128,17 @@ def _followers(text: str) -> int:
     return int(n * {"": 1, "K": 1_000, "M": 1_000_000}[m.group(2).upper()])
 
 
-def company_queries(name: str) -> list[str]:
+def company_queries(name: str, everyday: Optional[str] = None) -> list[str]:
     """'Zillow Group' -> ['Zillow Group', 'Zillow'], 'Amazon.com Services' -> [..., 'Amazon']:
-    LinkedIn's company search is phrase-like, and subsidiaries post under legal entity names."""
+    LinkedIn's company search is phrase-like, and subsidiaries post under legal entity names.
+    `everyday` (the name people use, from Claude) goes first when given."""
     short = re.sub(r"\.com\b", "", name, flags=re.I)
     short = re.sub(r"\s+", " ", GENERIC_WORDS_RE.sub("", short)).strip(" ,&-")
-    return [name] + ([short] if short and short.lower() != name.lower() else [])
+    out: list[str] = []
+    for q in (everyday, name, short):
+        if q and q.strip() and q.strip().lower() not in {o.lower() for o in out}:
+            out.append(q.strip())
+    return out
 
 
 def _brand(name: str) -> str:
@@ -142,36 +147,75 @@ def _brand(name: str) -> str:
     return words[0] if words else ""
 
 
-def pick_company(cards: list[dict], names: list[str]) -> Optional[dict]:
-    """Exact name match first, otherwise the most-followed result whose name contains the
-    company's first word (the main page, not a subsidiary). None if nothing resembles it:
-    picking an unrelated big company (e.g. Natura for "Amazon.com Services") is worse than failing."""
+def rank_companies(cards: list[dict], names: list[str]) -> list[dict]:
+    """Candidate pages, best first: exact name matches by followers (so the real "Allstate"
+    beats an agent's page also named "Allstate Insurance"), then pages whose name contains the
+    company's first word, by followers. Nothing else: picking an unrelated big company (e.g.
+    Natura for "Amazon.com Services") is worse than failing."""
     wanted = {n.lower() for n in names}
-    exact = [c for c in cards if c["name"].lower() in wanted]
     brand = _brand(names[0])
-    pool = exact or [c for c in cards if brand and re.search(rf"\b{re.escape(brand)}", c["name"].lower())]
-    return max(pool, key=lambda c: _followers(c["text"]), default=None)
+    by_slug = {c["slug"]: c for c in cards}
+    exact = [c for c in by_slug.values() if c["name"].lower() in wanted]
+    similar = [c for c in by_slug.values() if c not in exact and brand
+               and re.search(rf"\b{re.escape(brand)}", c["name"].lower())]
+    key = lambda c: _followers(c["text"])
+    return sorted(exact, key=key, reverse=True) + sorted(similar, key=key, reverse=True)
 
 
-async def _find_company_url(page: Page, name: str) -> str:
-    queries = company_queries(name)
+def pick_company(cards: list[dict], names: list[str]) -> Optional[dict]:
+    return next(iter(rank_companies(cards, names)), None)
+
+
+class _EverydayName(BaseModel):
+    name: str
+
+
+async def everyday_name(name: str, model: str) -> Optional[str]:
+    """The name a company's main LinkedIn page goes by, from the legal name on a posting
+    ("Zillow Group, Inc." -> "Zillow"). None if Claude can't be reached; the rules still apply."""
+    from referral.llm import client, log_usage
+
+    try:
+        response = await client().messages.parse(
+            model=model, max_tokens=2000, output_config={"effort": "low"},
+            messages=[{"role": "user", "content": (
+                f"Employer name on a job posting: {name!r}\n\nWhat name does this employer's main LinkedIn "
+                "company page use? Give the everyday brand name of the company itself (for a legal entity, "
+                "regional office or subsidiary named after the parent, the parent's main page): e.g. "
+                "\"Zillow Group, Inc.\" -> \"Zillow\", \"Google LLC\" -> \"Google\", \"JPMorgan Chase Bank, N.A.\" -> "
+                "\"JPMorganChase\". If unsure, return the name without legal suffixes.")}],
+            output_format=_EverydayName,
+        )
+        log_usage("company_name", response)
+        return response.parsed_output.name.strip() or None
+    except Exception:
+        return None
+
+
+async def _find_company_urls(page: Page, name: str, everyday: Optional[str] = None) -> list[str]:
+    """Up to 3 candidate company pages, best first."""
+    queries = company_queries(name, everyday)
     all_cards: list[dict] = []
     for i, query in enumerate(queries):
         if i:
             await asyncio.sleep(random.uniform(3, 6))
         await _goto(page, "https://www.linkedin.com/search/results/companies/?" + urlencode({"keywords": query}))
-        cards = await page.evaluate(COMPANY_CARDS_JS)
-        all_cards += cards
-        exact = [c for c in all_cards if c["name"].lower() in {q.lower() for q in queries}]
-        # A small exact match can be a stub page named after a legal entity ("Amazon.com Services",
-        # 183 followers): keep going to the short name and take the most-followed exact match.
-        if exact and (i == len(queries) - 1 or _followers(pick_company(exact, queries)["text"]) >= MAIN_PAGE_FOLLOWERS):
-            return f"https://www.linkedin.com/company/{pick_company(exact, queries)['slug']}/"
-    best = pick_company(all_cards, queries)
-    if best is None:
+        all_cards += await page.evaluate(COMPANY_CARDS_JS)
+        ranked = rank_companies(all_cards, queries)
+        # Stop at a well-followed exact match. A small one can be a stub page named after a legal
+        # entity ("Amazon.com Services", 183 followers) or an agent; keep trying the other names.
+        top = ranked[0] if ranked else None
+        if top and top["name"].lower() in {q.lower() for q in queries} and _followers(top["text"]) >= MAIN_PAGE_FOLLOWERS:
+            break
+    ranked = rank_companies(all_cards, queries)
+    if not ranked:
         raise LookupError(f"No LinkedIn company page found that matches {name!r}. Run it from the command line "
                           "with the right page: refer find <job url> --company-url <linkedin company URL>")
-    return f"https://www.linkedin.com/company/{best['slug']}/"
+    return [f"https://www.linkedin.com/company/{c['slug']}/" for c in ranked[:3]]
+
+
+async def _find_company_url(page: Page, name: str, everyday: Optional[str] = None) -> str:
+    return (await _find_company_urls(page, name, everyday))[0]
 
 
 async def _company_ids(page: Page, company_url: str) -> list[str]:
@@ -187,17 +231,33 @@ async def _company_ids(page: Page, company_url: str) -> list[str]:
     raise LookupError(f"No employee search link on {company_url}")
 
 
-async def resolve_company(page: Page, name: str, company_url: Optional[str] = None) -> Company:
+async def resolve_company(page: Page, name: str, company_url: Optional[str] = None,
+                          model: Optional[str] = None) -> Company:
+    """The company's LinkedIn page and IDs (cached). `model`: Claude model used once per new
+    company to get the name its LinkedIn page uses."""
     if not name.strip() and not company_url:
         raise ValueError("No company name to look up on LinkedIn")
     cache = _load_cache()
     key = (company_url or name).lower()
     if key in cache:
         return Company(**cache[key])
-    if company_url is None:
-        company_url = await _find_company_url(page, name)
-        await asyncio.sleep(random.uniform(3, 6))
-    company = Company(name=name, linkedin_url=company_url, ids=await _company_ids(page, company_url))
+    if company_url is not None:
+        ids = await _company_ids(page, company_url)
+    else:
+        everyday = await everyday_name(name, model) if model else None
+        urls = await _find_company_urls(page, name, everyday)
+        for url in urls:  # e.g. an agent's page has no employee list: try the next candidate
+            await asyncio.sleep(random.uniform(3, 6))
+            try:
+                ids, company_url = await _company_ids(page, url), url
+                break
+            except LookupError:
+                continue
+        else:
+            raise LookupError(f"None of the LinkedIn pages matching {name!r} list employees ({', '.join(urls)}). "
+                              "Run it from the command line with the right page: "
+                              "refer find <job url> --company-url <linkedin company URL>")
+    company = Company(name=name, linkedin_url=company_url, ids=ids)
     cache[key] = company.model_dump()
     # A URL given by the user is a correction: remember it for this company name too.
     cache[name.lower()] = company.model_dump()
