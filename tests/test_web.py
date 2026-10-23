@@ -358,3 +358,18 @@ def test_simplify_trim():
             base | {"id": "hidden", "is_visible": False}, base | {"id": "fall", "terms": ["Fall 2026"]},
             base | {"id": "hw", "category": "Hardware"}]
     assert [j["id"] for j in trim(rows, DEFAULTS)] == ["new", "ok"]
+
+
+def test_simplify_us_and_phd_filters():
+    from referral.simplify import DEFAULTS, in_us, trim
+
+    assert all(map(in_us, ["Seattle, WA", "NYC", "Remote in USA", "Texas", "Washington, DC"]))
+    assert not any(map(in_us, ["Toronto, ON, Canada", "London, UK", "Remote in UK", "Canada"]))
+    base = {"company_name": "A", "title": "SWE Intern", "url": "https://a.com/1", "active": True, "terms": ["Summer 2027"],
+            "category": "Software", "locations": ["NYC"], "degrees": ["Bachelor's"]}
+    rows = [base | {"id": "ok"}, base | {"id": "both", "locations": ["Toronto, ON, Canada", "Austin, TX"]},
+            base | {"id": "ca", "locations": ["Toronto, ON, Canada"]}, base | {"id": "phd", "degrees": ["PhD"]},
+            base | {"id": "phd-title", "title": "PhD Research Intern", "degrees": []},
+            base | {"id": "ms-phd", "degrees": ["Master's", "PhD"]}]
+    assert sorted(j["id"] for j in trim(rows, DEFAULTS)) == ["both", "ms-phd", "ok"]
+    assert len(trim(rows, DEFAULTS | {"us_only": False, "exclude_phd": False})) == 6
