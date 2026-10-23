@@ -206,11 +206,13 @@ function el(tag, attrs = {}, ...children) {
 
 let current = null;  // {id, data}
 let SCHOOL = "School";  // short school name from config.yaml, e.g. "Cornell"
+let NEXT_SEND = null;  // Date: when a newly scheduled email would go out (email.send_time)
 
 async function loadSettings() {
   try {
     const st = await api("/api/settings");
     SCHOOL = st.school_short;
+    NEXT_SEND = new Date(st.next_send_at);
     $("#school").textContent = st.school_short;
   } catch (err) { /* keep the generic wording */ }
 }
@@ -230,7 +232,10 @@ async function loadRuns() {
     el("div", { class: "co" }, el("span", { title: r.title }, r.company), appliedBox(r)),
     el("div", { class: "row" },
       el("span", { class: "date" }, searchedOn(r.created_at)),
-      r.outreach.sent ? el("span", { class: "sent" }, `${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`) : null),
+      el("span", {},
+        r.outreach.scheduled ? el("span", { class: "date" }, `${r.outreach.scheduled} scheduled`) : null,
+        r.outreach.scheduled && r.outreach.sent ? el("span", { class: "date" }, " · ") : null,
+        r.outreach.sent ? el("span", { class: "sent" }, `${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`) : null)),
   )));
   if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
 }
@@ -501,12 +506,14 @@ function outreach() {
   const byUrl = Object.fromEntries(candidates.map(c => [c.result.linkedin_url, c]));
   const withEmail = selected.filter(u => emails[u] && emails[u].email);
   const withoutEmail = selected.filter(u => !(emails[u] && emails[u].email));
-  const sendable = withEmail.filter(u => drafts[u] && !sent[u]);
+  const scheduled = current.data.scheduled || {};
+  const sendable = withEmail.filter(u => drafts[u] && !sent[u] && !scheduled[u]);
   fieldRefs = {};
   return el("div", {},
     el("div", { class: "sendbar" },
       el("button", { class: "big", disabled: sendable.length ? null : "", onclick: (e) => sendAll(e.target, sendable) },
-        sendable.length ? `Send all emails (${sendable.length})` : (withEmail.length ? "All emails sent" : "No emails to send")),
+        sendable.length ? `Schedule all emails (${sendable.length}) for ${whenLabel(NEXT_SEND)}`
+          : (withEmail.length ? "All emails sent or scheduled" : "No emails to send")),
       el("div", { class: "status", id: "status" }),
       outreachState.errors.map(e => el("div", { class: "error" }, e)),
     ),
@@ -596,57 +603,86 @@ function noEmailCard(c, e) {
   );
 }
 
+// "today 11:00 AM", "tomorrow 11:00 AM", or "Mon 11:00 AM"
+function whenLabel(date) {
+  if (!date) return "the send time";
+  const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diff = Math.round((day(date) - day(new Date())) / 86400000);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${diff === 0 ? "today" : diff === 1 ? "tomorrow" : date.toLocaleDateString(undefined, { weekday: "short" })} ${time}`;
+}
+
 function sendButtons(url, e, subject, text, d, sent) {
   if (sent) return [el("span", { class: "badge ok" }, `Sent ${new Date(sent.sent_at).toLocaleString()}`)];
   const to = e.email;
+  const scheduled = (current.data.scheduled || {})[url];
   // Unsaved edits would otherwise be skipped: fields save on blur, which may not have fired yet.
   const flush = () => api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
     linkedin_url: url, subject: subject.value, body: text.value }) });
+  const post = (path, body) => api(`/api/runs/${current.id}/${path}`, { method: "POST", body: JSON.stringify(body) });
   const test = el("button", { class: "secondary small", onclick: async (ev) => {
     await flush();
     await busy(ev.target, "Sending…", async () => {
-      const { sent } = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url, test: true }) });
+      const { sent } = await post("send", { linkedin_url: url, test: true });
       alert(`Test sent to ${sent.to}. Check your inbox.`);
     });
   } }, "Test to me");
-  const real = el("button", { class: "small", onclick: async (ev) => {
-    if (!confirm(`Send this email to ${to}, with your resume attached?\n\nSubject: ${subject.value}`)) return;
+  const now = el("button", { class: "secondary small", onclick: async (ev) => {
+    if (!confirm(`Send this email to ${to} right now, with your resume attached?\n\nSubject: ${subject.value}`)) return;
     await flush();
     await busy(ev.target, "Sending…", async () => {
-      const res = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url }) });
+      const res = await post("send", { linkedin_url: url });
       current.data.sent = res.run_sent;
+      current.data.scheduled = res.scheduled;
+      loadRuns();
     });
-  } }, "Send");
-  return [real, test];
+  } }, "Send now");
+  if (scheduled) {
+    const cancel = el("button", { class: "secondary small", onclick: async (ev) => {
+      await busy(ev.target, "Cancelling…", async () => {
+        current.data.scheduled = (await post("unschedule", { linkedin_url: url })).scheduled;
+        loadRuns();
+      });
+    } }, "Cancel");
+    return [scheduled.error
+              ? el("span", { class: "badge bad", title: scheduled.error }, `Not sent: ${scheduled.error}`)
+              : el("span", { class: "badge ok", title: "Edits you make before then are what gets sent" },
+                   `Scheduled for ${whenLabel(new Date(scheduled.send_at))}`),
+            cancel, now];
+  }
+  const schedule = el("button", { class: "small", onclick: async (ev) => {
+    await flush();
+    await busy(ev.target, "Scheduling…", async () => {
+      current.data.scheduled = (await post("schedule", { linkedin_url: url })).scheduled;
+      loadRuns();
+    });
+  } }, `Send ${whenLabel(NEXT_SEND)}`);
+  return [schedule, now, test];
 }
-
-const SEND_ALL_GAP_MS = 4000;  // pause between emails so a batch doesn't look like a blast
 
 async function sendAll(button, urls) {
   const { emails, candidates } = current.data;
   const names = Object.fromEntries(candidates.map(c => [c.result.linkedin_url, c.result.name]));
   const list = urls.map(u => `• ${names[u]} <${emails[u].email}>`).join("\n");
-  if (!confirm(`Send ${urls.length} email${urls.length > 1 ? "s" : ""}, each with your resume attached?\n\n${list}`)) return;
+  if (!confirm(`Schedule ${urls.length} email${urls.length > 1 ? "s" : ""} for ${whenLabel(NEXT_SEND)}, each with your resume attached?\n\n${list}\n\nYou can still edit or cancel them until then.`)) return;
   const failures = [];
-  await busy(button, "Sending…", async () => {
-    for (const [i, url] of urls.entries()) {
-      button.textContent = `Sending ${i + 1}/${urls.length}…`;
+  await busy(button, "Scheduling…", async () => {
+    for (const url of urls) {
       try {
         const f = fieldRefs[url];
         if (f) {  // save edits that haven't been blurred yet
           current.data.drafts = (await api(`/api/runs/${current.id}/drafts`, { method: "PUT", body: JSON.stringify({
             linkedin_url: url, subject: f.subject.value, body: f.text.value }) })).drafts;
         }
-        const res = await api(`/api/runs/${current.id}/send`, { method: "POST", body: JSON.stringify({ linkedin_url: url }) });
-        current.data.sent = res.run_sent;
+        current.data.scheduled = (await api(`/api/runs/${current.id}/schedule`, { method: "POST",
+          body: JSON.stringify({ linkedin_url: url }) })).scheduled;
       } catch (err) {
         failures.push(`${names[url]}: ${err.message}`);
       }
-      if (i < urls.length - 1) await new Promise(r => setTimeout(r, SEND_ALL_GAP_MS));
     }
   });
-  const ok = urls.length - failures.length;
-  alert(`Sent ${ok} of ${urls.length}.` + (failures.length ? `\n\nNot sent:\n${failures.join("\n")}` : ""));
+  loadRuns();
+  if (failures.length) alert(`Scheduled ${urls.length - failures.length} of ${urls.length}.\n\nNot scheduled:\n${failures.join("\n")}`);
 }
 
 // Top-right panel: what's left of each paid/limited resource.

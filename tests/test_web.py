@@ -30,7 +30,7 @@ def test_index_and_runs(client):
     runs = client.get("/api/runs").json()
     assert runs == [{"id": "acme-1", "company": "Acme", "title": "SWE Intern",
                      "created_at": "2026-10-21T17:48:16", "candidates": 1, "selected": 0, "applied": False, "simplify_id": None, "url": RUN["job"]["url"],
-                     "outreach": {"drafted": 0, "no_email": 0, "sent": 0, "done": False}}]
+                     "outreach": {"drafted": 0, "no_email": 0, "sent": 0, "scheduled": 0, "done": False}}]
 
 
 def test_select_keeps_only_known_people(client, tmp_path):
@@ -239,7 +239,7 @@ def test_outreach_drafts_only_people_with_email(client, monkeypatch, tmp_path):
     run = out["run"]
     assert list(run["drafts"]) == ["https://www.linkedin.com/in/a/"]
     assert "invitations" not in run
-    assert client.get("/api/runs").json()[0]["outreach"] == {"drafted": 1, "no_email": 1, "sent": 0, "done": True}
+    assert client.get("/api/runs").json()[0]["outreach"] == {"drafted": 1, "no_email": 1, "sent": 0, "scheduled": 0, "done": True}
 
     client.post("/api/runs/acme-1/outreach")  # second open: nothing left to do
     assert drafted == ["A"]
@@ -278,7 +278,7 @@ def test_runs_list_outreach_status(client, tmp_path):
     run["drafts"] = {url: {"subject": "S", "body": "B"}}
     run["sent"] = {url: {}}
     (tmp_path / "acme-1.json").write_text(json.dumps(run))
-    assert client.get("/api/runs").json()[0]["outreach"] == {"drafted": 1, "no_email": 0, "sent": 1, "done": True}
+    assert client.get("/api/runs").json()[0]["outreach"] == {"drafted": 1, "no_email": 0, "sent": 1, "scheduled": 0, "done": True}
 
 
 def test_applied_checkbox(client, tmp_path):
@@ -396,3 +396,100 @@ def test_retry_starts_the_worker(client, monkeypatch, tmp_path):
                 break
             time.sleep(0.05)
     assert ran == ["q1"]
+
+
+def test_next_send_at():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    cfg = {"email": {"send_time": "11:00", "timezone": "America/New_York"}}
+    assert web.next_send_at(cfg, datetime(2026, 10, 23, 4, 16, tzinfo=et)) == datetime(2026, 10, 23, 11, 0, tzinfo=et)
+    assert web.next_send_at(cfg, datetime(2026, 10, 23, 11, 0, tzinfo=et)) == datetime(2026, 10, 24, 11, 0, tzinfo=et)
+    # Across the DST change (Nov 1): still 11:00 local, not 10:00 or 12:00.
+    at = web.next_send_at(cfg, datetime(2026, 10, 31, 15, 0, tzinfo=et))
+    assert (at.date().isoformat(), at.hour, at.utcoffset().total_seconds() / 3600) == ("2026-11-01", 11, -5)
+
+
+def _schedulable(client, monkeypatch, tmp_path):
+    """Acme run with A selected, emailed and drafted; Gmail faked. Returns the list of sent messages."""
+    from referral import gmail
+    from referral.compose import Draft
+
+    async def fake_compose(cfg, job, candidate, to):
+        return Draft(to=to, subject="Hi", body="Body", short_title="SWE Intern", company="Acme",
+                     generated_at="2026-10-21T00:00:00")
+
+    sent = []
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 fake")
+    cfg = {"me": {"name": "Alex Doe", "resume_path": str(resume)},
+           "email": {"send_time": "11:00", "timezone": "America/New_York"}}
+    monkeypatch.setattr(web, "compose", fake_compose)
+    monkeypatch.setattr(store, "SENT_LOG", tmp_path / "sent.jsonl")
+    monkeypatch.setattr(gmail, "send", lambda message: sent.append(message) or "gmail-id")
+    monkeypatch.setattr(web, "load_config", lambda: cfg)
+    monkeypatch.setattr(web, "project_path", lambda p: tmp_path / p)
+    url = "https://www.linkedin.com/in/a/"
+    client.put("/api/runs/acme-1/selected", json={"selected": [url]})
+    client.put("/api/runs/acme-1/emails", json={"linkedin_url": url, "email": "a@acme.com"})
+    client.post("/api/runs/acme-1/drafts", json={})
+    return sent
+
+
+def test_scheduled_email_sends_at_its_time(client, monkeypatch, tmp_path):
+    import asyncio
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    sent = _schedulable(client, monkeypatch, tmp_path)
+    url = "https://www.linkedin.com/in/a/"
+    scheduled = client.post("/api/runs/acme-1/schedule", json={"linkedin_url": url}).json()["scheduled"]
+    at = datetime.fromisoformat(scheduled[url]["send_at"])
+    assert (at.hour, at.minute) == (11, 0) and scheduled[url]["to"] == "a@acme.com"
+    assert client.get("/api/runs").json()[0]["outreach"]["scheduled"] == 1
+    # Edit after scheduling: the edited draft is what goes out.
+    client.put("/api/runs/acme-1/drafts", json={"linkedin_url": url, "subject": "Edited", "body": "B"})
+
+    asyncio.run(web._send_due(at - timedelta(minutes=1)))
+    assert sent == []  # not yet
+    asyncio.run(web._send_due(at + timedelta(seconds=30)))
+    assert [m["Subject"] for m in sent] == ["Edited"]
+    run = client.get("/api/runs/acme-1").json()
+    assert url in run["sent"] and run["scheduled"] == {}
+    assert client.post("/api/runs/acme-1/schedule", json={"linkedin_url": url}).status_code == 409  # never twice
+
+
+def test_missed_send_window_moves_to_next_day(client, monkeypatch, tmp_path):
+    import asyncio
+    from datetime import datetime, timedelta
+
+    sent = _schedulable(client, monkeypatch, tmp_path)
+    url = "https://www.linkedin.com/in/a/"
+    at = datetime.fromisoformat(client.post("/api/runs/acme-1/schedule", json={"linkedin_url": url}).json()["scheduled"][url]["send_at"])
+    asyncio.run(web._send_due(at + timedelta(hours=5)))  # PC was off until 4 PM
+    assert sent == []
+    later = datetime.fromisoformat(client.get("/api/runs/acme-1").json()["scheduled"][url]["send_at"])
+    assert later == at + timedelta(days=1)
+
+
+def test_unschedule_and_failure_is_shown(client, monkeypatch, tmp_path):
+    import asyncio
+    from datetime import datetime, timedelta
+
+    from referral import gmail
+
+    _schedulable(client, monkeypatch, tmp_path)
+    url = "https://www.linkedin.com/in/a/"
+    client.post("/api/runs/acme-1/schedule", json={"linkedin_url": url})
+    assert client.post("/api/runs/acme-1/unschedule", json={"linkedin_url": url}).json()["scheduled"] == {}
+
+    at = datetime.fromisoformat(client.post("/api/runs/acme-1/schedule", json={"linkedin_url": url}).json()["scheduled"][url]["send_at"])
+
+    def expired(message):
+        raise gmail.GmailNotConnected("Gmail login expired. Run: refer gmail-login")
+
+    monkeypatch.setattr(gmail, "send", expired)
+    asyncio.run(web._send_due(at))
+    entry = client.get("/api/runs/acme-1").json()["scheduled"][url]
+    assert "refer gmail-login" in entry["error"]  # kept, with the reason; not retried every 30 s

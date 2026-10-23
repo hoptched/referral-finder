@@ -82,6 +82,7 @@ def outreach_status(run: dict) -> dict:
         "drafted": sum(u in drafts for u in has_email),
         "no_email": sum(u in emails for u in selected) - len(has_email),
         "sent": sum(u in sent for u in selected),
+        "scheduled": sum(u in (run.get("scheduled") or {}) and u not in sent for u in selected),
         "done": bool(selected) and all(u in emails for u in selected) and all(u in drafts for u in has_email),
     }
 

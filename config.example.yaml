@@ -69,3 +69,11 @@ instagram:
   accounts: [zero2sudo]
   session_path: ig_session.json  # gitignored
   check_every_hours: 24
+
+# When emails go out. "Send" / "Schedule all" queue them for the next send_time; the
+# site sends them then (Gmail's API has no scheduled send), 20–60 s apart. If the
+# site wasn't running at that time, they go out when it starts, up to 3 hours late;
+# after that they move to the next day. "Send now" skips the wait.
+email:
+  send_time: "11:00"
+  timezone: America/New_York

@@ -7,11 +7,13 @@ keys, so it must never listen on a public interface.
 import asyncio
 import json
 import os
+import random
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -34,9 +36,10 @@ STATIC = Path(__file__).parent / "static"
 @asynccontextmanager
 async def _lifespan(app):
     _kick()  # resume a queue left over from the last run
-    loop = None if os.environ.get("REFER_NO_BACKGROUND") else asyncio.create_task(_instagram_loop())
+    loops = [] if os.environ.get("REFER_NO_BACKGROUND") else \
+        [asyncio.create_task(_instagram_loop()), asyncio.create_task(_scheduler_loop())]
     yield
-    if loop:
+    for loop in loops:
         loop.cancel()
 
 
@@ -90,6 +93,10 @@ class EmailEdit(BaseModel):
 
 class DraftRequest(BaseModel):
     linkedin_url: Optional[str] = None  # one person (regenerate); None = every selected person without a draft
+
+
+class ScheduleRequest(BaseModel):
+    linkedin_url: str
 
 
 class SendRequest(BaseModel):
@@ -226,8 +233,10 @@ def email_sources():
 
 @app.get("/api/settings")
 def settings():
-    me = load_config()["me"]
-    return {"school": me["school"], "school_short": school_short(me["school"])}
+    cfg = load_config()
+    me = cfg["me"]
+    return {"school": me["school"], "school_short": school_short(me["school"]),
+            "next_send_at": next_send_at(cfg).isoformat()}
 
 
 @app.get("/api/credits")
@@ -272,25 +281,30 @@ def gmail_status():
 
 @app.post("/api/runs/{run_id}/send")
 async def send_email(run_id: str, body: SendRequest):
-    """Send one drafted email through Gmail, resume attached. Never twice to the same person."""
+    """Send one drafted email now (or a [TEST] copy to yourself)."""
+    return await _deliver(run_id, body.linkedin_url, body.test)
+
+
+async def _deliver(run_id: str, url: str, test: bool = False) -> dict:
+    """Send one drafted email through Gmail, resume attached. Never twice to the same person.
+    Used by "Send now" and by the scheduler; a real send clears that person's schedule."""
     cfg = load_config()
     run = _load(run_id)
-    url = body.linkedin_url
     draft = run["drafts"].get(url)
     if draft is None:
         raise HTTPException(400, "No draft for that person yet")
     to = (run["emails"].get(url) or {}).get("email")
-    if not body.test and not to:
+    if not test and not to:
         raise HTTPException(400, "No email address for that person")
     async with _send_lock:
-        if not body.test and (previous := store.already_sent(url, to)):
+        if not test and (previous := store.already_sent(url, to)):
             raise HTTPException(409, f"Already emailed {previous['to']} on {previous['sent_at'][:10]}")
         me = cfg["me"]
         try:
-            recipient = gmail.account_email() if body.test else to
+            recipient = gmail.account_email() if test else to
             message = gmail.build_message(
                 recipient,
-                ("[TEST] " if body.test else "") + draft["subject"],
+                ("[TEST] " if test else "") + draft["subject"],
                 draft["body"],
                 project_path(me["resume_path"]),
                 f"{me['name'].replace(' ', '_')}_Resume.pdf",
@@ -302,12 +316,114 @@ async def send_email(run_id: str, body: SendRequest):
             raise HTTPException(502, f"Gmail send failed: {type(e).__name__}: {e}")
 
         entry = {"sent_at": datetime.now().isoformat(), "to": recipient, "linkedin_url": url, "run_id": run_id,
-                 "subject": draft["subject"], "gmail_id": message_id, "test": body.test}
-        if body.test:
+                 "subject": draft["subject"], "gmail_id": message_id, "test": test}
+        if test:
             return {"sent": entry}
         store.log_sent(entry)
-    run = await _update_run(run_id, lambda r: r.setdefault("sent", {}).update({url: entry}))
-    return {"sent": entry, "run_sent": run["sent"]}
+
+    def change(r):
+        r.setdefault("sent", {})[url] = entry
+        (r.get("scheduled") or {}).pop(url, None)
+    run = await _update_run(run_id, change)
+    return {"sent": entry, "run_sent": run["sent"], "scheduled": run.get("scheduled", {})}
+
+
+# ---------- scheduled sending ----------
+# Gmail's API has no scheduled send, so emails wait in run["scheduled"] and the site sends
+# them at email.send_time (default 11:00, email.timezone). Missed by more than
+# SEND_WINDOW_HOURS (the PC was off), an email moves to the next day instead of going out late.
+SEND_WINDOW_HOURS = 3
+
+
+def _send_settings(cfg: dict) -> dict:
+    return {"send_time": "11:00", "timezone": "America/New_York", **(cfg.get("email") or {})}
+
+
+def next_send_at(cfg: dict, now: Optional[datetime] = None) -> datetime:
+    s = _send_settings(cfg)
+    tz = ZoneInfo(s["timezone"])
+    now = (now or datetime.now(tz)).astimezone(tz)
+    hour, minute = (int(x) for x in s["send_time"].split(":"))
+    day = now.date()
+    at = datetime(day.year, day.month, day.day, hour, minute, tzinfo=tz)
+    if at <= now:
+        day += timedelta(days=1)
+        at = datetime(day.year, day.month, day.day, hour, minute, tzinfo=tz)
+    return at
+
+
+def _scheduled_elsewhere(run_id: str, url: str, to: str) -> Optional[str]:
+    """The company of another search where this person (or address) is already scheduled."""
+    for path in store.RUNS_DIR.glob("*.json"):
+        other = json.loads(path.read_text())
+        for u, e in (other.get("scheduled") or {}).items():
+            if (path.stem, u) != (run_id, url) and (u == url or e["to"].lower() == to.lower()):
+                return other["job"]["company"]
+    return None
+
+
+@app.post("/api/runs/{run_id}/schedule")
+async def schedule_email(run_id: str, body: ScheduleRequest):
+    """Queue one drafted email for the next send time. The draft is read when it's sent, so
+    edits made before then go out."""
+    cfg = load_config()
+    run = _load(run_id)
+    url = body.linkedin_url
+    if url not in run["drafts"]:
+        raise HTTPException(400, "No draft for that person yet")
+    to = (run["emails"].get(url) or {}).get("email")
+    if not to:
+        raise HTTPException(400, "No email address for that person")
+    if previous := store.already_sent(url, to):
+        raise HTTPException(409, f"Already emailed {previous['to']} on {previous['sent_at'][:10]}")
+    if company := _scheduled_elsewhere(run_id, url, to):
+        raise HTTPException(409, f"{to} is already scheduled from the {company} search")
+    entry = {"send_at": next_send_at(cfg).isoformat(), "to": to, "scheduled_at": datetime.now().isoformat(),
+             "error": None}
+    run = await _update_run(run_id, lambda r: r.setdefault("scheduled", {}).update({url: entry}))
+    return {"scheduled": run["scheduled"]}
+
+
+@app.post("/api/runs/{run_id}/unschedule")
+async def unschedule_email(run_id: str, body: ScheduleRequest):
+    run = await _update_run(run_id, lambda r: (r.get("scheduled") or {}).pop(body.linkedin_url, None))
+    return {"scheduled": run.get("scheduled", {})}
+
+
+async def _send_due(now: Optional[datetime] = None) -> None:
+    """Send every scheduled email whose time has come, 20–60 s apart."""
+    cfg = load_config()
+    now = now or datetime.now(ZoneInfo(_send_settings(cfg)["timezone"]))
+    first = True
+    for path in sorted(store.RUNS_DIR.glob("*.json")):
+        run = json.loads(path.read_text())
+        for url, e in list((run.get("scheduled") or {}).items()):
+            at = datetime.fromisoformat(e["send_at"])
+            if e.get("error") or at > now:
+                continue
+            if now - at > timedelta(hours=SEND_WINDOW_HOURS):
+                later = next_send_at(cfg, now).isoformat()
+                await _update_run(path.stem, lambda r, u=url, t=later: r["scheduled"][u].update(send_at=t))
+                continue
+            if not first:
+                await asyncio.sleep(random.uniform(20, 60))
+            first = False
+            try:
+                await _deliver(path.stem, url)
+            except HTTPException as ex:
+                if ex.status_code == 409:  # sent some other way meanwhile
+                    await _update_run(path.stem, lambda r, u=url: r["scheduled"].pop(u, None))
+                else:  # shown on the card; the user can Send now or cancel
+                    await _update_run(path.stem, lambda r, u=url, d=ex.detail: r["scheduled"][u].update(error=str(d)))
+
+
+async def _scheduler_loop():
+    while True:
+        try:
+            await _send_due()
+        except Exception:
+            pass  # a bad run file must not stop scheduled sending; the next round tries again
+        await asyncio.sleep(30)
 
 
 @app.put("/api/runs/{run_id}/emails")
