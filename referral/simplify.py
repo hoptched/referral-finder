@@ -22,6 +22,7 @@ DEFAULTS = {
     "categories": ["Software", "Software Engineering", "AI/ML/Data", "Data Science, AI & Machine Learning"],
     "us_only": True,  # drop jobs with no location in the United States
     "exclude_phd": True,  # drop jobs only open to PhD students
+    "max_age_days": 10,  # drop jobs posted longer ago than this
 }
 
 US_STATES = {
@@ -67,6 +68,7 @@ def url_key(url: str) -> str:
 def trim(listings: list[dict], s: dict) -> list[dict]:
     """Open listings matching the configured terms and categories, newest first."""
     terms, categories = set(s["terms"]), set(s["categories"])
+    oldest = time.time() - s["max_age_days"] * 86400
     jobs = [{
         "id": x["id"],
         "company": x["company_name"],
@@ -78,6 +80,7 @@ def trim(listings: list[dict], s: dict) -> list[dict]:
     } for x in listings
         if x.get("active") and x.get("is_visible", True) and x.get("url")
         and terms & set(x.get("terms") or []) and x.get("category") in categories
+        and (x.get("date_posted") or x.get("date_updated") or 0) >= oldest
         and not (s["exclude_phd"] and phd_only(x))
         # No location at all: kept, since there's nothing to judge by.
         and not (s["us_only"] and x.get("locations") and not any(in_us(l) for l in x["locations"]))]

@@ -68,7 +68,6 @@
 
   form { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
   form .inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  #company-url { font-size: 13px; padding: 7px 12px; }
   input[type=url] { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
                     background: var(--panel); color: var(--text); font: inherit; min-width: 0; }
   button { padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
@@ -179,7 +178,6 @@
     <form id="find">
       <div class="inputs">
         <input type="url" id="url" placeholder="Job link (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, LinkedIn, or any job page)" required>
-        <input type="url" id="company-url" placeholder="Optional: LinkedIn company URL, if it matched the wrong company">
       </div>
       <button id="go">Find alumni</button>
     </form>
@@ -747,10 +745,10 @@ $("#find").onsubmit = async (e) => {
   const log = $("#log");
   try {
     const item = await api("/api/queue", { method: "POST", body: JSON.stringify({
-      url: $("#url").value, company_url: $("#company-url").value.trim() || null }) });
+      url: $("#url").value }) });
     openWhenDone.add(item.id);
     logItem = item.id;
-    $("#url").value = ""; $("#company-url").value = "";
+    $("#url").value = "";
     log.hidden = false;
     log.replaceChildren(el("div", {}, "Added to the queue. It opens here when the search is done."));
     loadQueue();

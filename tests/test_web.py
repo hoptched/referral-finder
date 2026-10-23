@@ -353,8 +353,9 @@ def test_simplify_trim():
     from referral.simplify import DEFAULTS, trim
 
     base = {"company_name": "A", "title": "T", "url": "https://a.com/1", "active": True, "is_visible": True,
-            "terms": ["Summer 2027"], "category": "Software", "date_posted": 1}
-    rows = [base | {"id": "ok"}, base | {"id": "new", "date_posted": 5}, base | {"id": "closed", "active": False},
+            "terms": ["Summer 2027"], "category": "Software", "date_posted": time.time() - 86400}
+    rows = [base | {"id": "ok"}, base | {"id": "new", "date_posted": time.time()},
+            base | {"id": "stale", "date_posted": time.time() - 11 * 86400}, base | {"id": "closed", "active": False},
             base | {"id": "hidden", "is_visible": False}, base | {"id": "fall", "terms": ["Fall 2026"]},
             base | {"id": "hw", "category": "Hardware"}]
     assert [j["id"] for j in trim(rows, DEFAULTS)] == ["new", "ok"]
@@ -366,7 +367,7 @@ def test_simplify_us_and_phd_filters():
     assert all(map(in_us, ["Seattle, WA", "NYC", "Remote in USA", "Texas", "Washington, DC"]))
     assert not any(map(in_us, ["Toronto, ON, Canada", "London, UK", "Remote in UK", "Canada"]))
     base = {"company_name": "A", "title": "SWE Intern", "url": "https://a.com/1", "active": True, "terms": ["Summer 2027"],
-            "category": "Software", "locations": ["NYC"], "degrees": ["Bachelor's"]}
+            "category": "Software", "locations": ["NYC"], "degrees": ["Bachelor's"], "date_posted": time.time()}
     rows = [base | {"id": "ok"}, base | {"id": "both", "locations": ["Toronto, ON, Canada", "Austin, TX"]},
             base | {"id": "ca", "locations": ["Toronto, ON, Canada"]}, base | {"id": "phd", "degrees": ["PhD"]},
             base | {"id": "phd-title", "title": "PhD Research Intern", "degrees": []},
