@@ -51,6 +51,10 @@ class Selection(BaseModel):
     selected: list[str]
 
 
+class Applied(BaseModel):
+    applied: bool
+
+
 class EmailEdit(BaseModel):
     linkedin_url: str
     email: Optional[str]
@@ -115,6 +119,11 @@ async def set_selected(run_id: str, body: Selection):
         known = {c["result"]["linkedin_url"] for c in run["candidates"]}
         run["selected"] = [u for u in body.selected if u in known]
     return {"selected": (await _update_run(run_id, change))["selected"]}
+
+
+@app.put("/api/runs/{run_id}/applied")
+async def set_applied(run_id: str, body: Applied):
+    return {"applied": (await _update_run(run_id, lambda r: r.update(applied=body.applied)))["applied"]}
 
 
 def _methods() -> list[str]:
@@ -412,9 +421,10 @@ async def _run_find(task_id: str, body: FindRequest):
             async with _run_lock:
                 previous = load_run(run_id) or {}
                 write_run(posting, candidates, previous.get("selected", []))
-            if previous.get("emails") or previous.get("drafts"):
+            if previous.get("emails") or previous.get("drafts") or previous.get("applied"):
                 await _update_run(run_id, lambda r: r.update(emails=previous.get("emails", {}),
-                                                             drafts=previous.get("drafts", {})))
+                                                             drafts=previous.get("drafts", {}),
+                                                             applied=previous.get("applied", False)))
             task["run_id"] = run_id
             log("Done.")
             task["status"] = "done"

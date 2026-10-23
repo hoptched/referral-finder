@@ -49,7 +49,10 @@
   .runs li.done { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .runs li.done.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
   .runs .done-note { color: var(--ok); font-size: 13px; font-weight: 600; }
-  .runs .co { font-weight: 600; }
+  .runs .co { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .runs .co span { flex: 1; min-width: 0; }
+  .runs label.applied { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .runs label.applied input { margin: 0; cursor: pointer; }
   .runs .meta { color: var(--muted); font-size: 13px; }
 
   .log { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px;
@@ -180,12 +183,27 @@ async function loadRuns() {
   list.replaceChildren(...runs.map(r => el("li",
     { class: [current && current.id === r.id ? "active" : "", r.outreach.done ? "done" : ""].join(" ").trim(),
       onclick: () => openRun(r.id) },
-    el("div", { class: "co" }, r.company),
+    el("div", { class: "co" }, el("span", {}, r.company), appliedBox(r)),
     el("div", { class: "meta" }, r.title),
     el("div", { class: "meta" }, `${r.candidates} alumni · ${r.selected} selected`),
     r.outreach.done ? el("div", { class: "done-note" }, outreachSummary(r.outreach)) : null,
   )));
   if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
+}
+
+// "Applied" checkbox on a sidebar entry. Clicking it must not open the run.
+function appliedBox(r) {
+  const box = el("input", { type: "checkbox" });
+  box.checked = r.applied;
+  box.onchange = async () => {
+    try {
+      await api(`/api/runs/${encodeURIComponent(r.id)}/applied`,
+                { method: "PUT", body: JSON.stringify({ applied: box.checked }) });
+    } catch (e) { box.checked = !box.checked; alert(`Couldn't save: ${e.message}`); }
+  };
+  const label = el("label", { class: "applied", title: "I've applied to this job" }, box, "Applied");
+  label.onclick = e => e.stopPropagation();
+  return label;
 }
 
 // Mirrors store.outreach_status() for the run on screen.

@@ -100,6 +100,7 @@ def list_runs() -> list[dict]:
             "created_at": data["created_at"],
             "candidates": len(data["candidates"]),
             "selected": len(data["selected"]),
+            "applied": data.get("applied", False),
             "outreach": outreach_status(data),
         })
     return runs

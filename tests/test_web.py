@@ -28,7 +28,7 @@ def test_index_and_runs(client):
     assert "Referral Finder" in client.get("/").text
     runs = client.get("/api/runs").json()
     assert runs == [{"id": "acme-1", "company": "Acme", "title": "SWE Intern",
-                     "created_at": "2026-10-21T17:48:16", "candidates": 1, "selected": 0,
+                     "created_at": "2026-10-21T17:48:16", "candidates": 1, "selected": 0, "applied": False,
                      "outreach": {"drafted": 0, "invites": 0, "sent": 0, "done": False}}]
 
 
@@ -278,3 +278,11 @@ def test_runs_list_outreach_status(client, tmp_path):
     run["sent"] = {}
     (tmp_path / "acme-1.json").write_text(json.dumps(run))
     assert client.get("/api/runs").json()[0]["outreach"] == {"drafted": 0, "invites": 1, "sent": 0, "done": True}
+
+
+def test_applied_checkbox(client, tmp_path):
+    assert client.get("/api/runs").json()[0]["applied"] is False
+    assert client.put("/api/runs/acme-1/applied", json={"applied": True}).json() == {"applied": True}
+    assert client.get("/api/runs").json()[0]["applied"] is True
+    assert json.loads((tmp_path / "acme-1.json").read_text())["applied"] is True
+    assert client.put("/api/runs/nope/applied", json={"applied": True}).status_code == 404
