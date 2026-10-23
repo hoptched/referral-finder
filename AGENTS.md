@@ -5,6 +5,7 @@
 1. **Document everything you build.** Every module, command, config option, and setup step gets documented (README for users, this file for build progress/decisions).
 2. **Make regular commits** as each deliverable is completed — one commit per finished step, not one big commit at the end.
 3. **Write progress in this file.** Update the Progress log below whenever a deliverable is started, finished, or blocked.
+4. **Restart the site after every code change** (it doesn't reload by itself). It runs from the Windows scheduled task "Referral Finder": kill the `refer web` process, then `powershell.exe -NoProfile -Command 'Start-ScheduledTask -TaskName "Referral Finder"'`, and check http://localhost:8000 answers.
 
 ## Project
 
