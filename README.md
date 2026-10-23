@@ -143,6 +143,26 @@ This lists every requirement with ✓ / ✗ and how to fix each one (keys, confi
 
 Open http://localhost:8000. On WSL, open it in your normal Windows browser. **After pulling code changes, stop it (Ctrl+C) and start it again**; it doesn't reload on its own.
 
+### Start it automatically (Windows + WSL)
+
+To have the site running whenever you're logged in to Windows (it also does the daily Instagram check), create a scheduled task once. Paste this into **Windows PowerShell** (not the WSL terminal), changing `Ubuntu` and the folder if yours differ:
+
+```powershell
+$arg = '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ''cd ~/temp-scripts/referral-finder && exec .venv/bin/refer web >> .data/web.log 2>&1''"'
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName "Referral Finder" -Action $action -Trigger $trigger -Settings $settings
+Start-ScheduledTask -TaskName "Referral Finder"
+```
+
+- It runs hidden; open http://localhost:8000. Output goes to `.data/web.log`.
+- No time limit (Windows otherwise stops tasks after 3 days), and it restarts up to 3 times if it crashes.
+- **After code changes,** restart it: `Stop-ScheduledTask -TaskName "Referral Finder"; Start-ScheduledTask -TaskName "Referral Finder"`.
+- Don't also run `refer web` by hand while it's running (the port would be taken).
+- To remove it: `Unregister-ScheduledTask -TaskName "Referral Finder" -Confirm:$false`.
+- If registering says "Access is denied", open PowerShell with **Run as administrator** and try again.
+
 ### Troubleshooting
 
 | Symptom | Fix |
