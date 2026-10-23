@@ -48,7 +48,6 @@
   .runs li.active { background: var(--accent-soft); }
   .runs li.done { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
   .runs li.done.active { background: color-mix(in srgb, var(--ok) 18%, transparent); }
-  .runs .done-note { color: var(--ok); font-size: 13px; font-weight: 600; }
   .runs .co { font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .runs .co span { flex: 1; min-width: 0; }
   .runs label.applied { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer; white-space: nowrap; }
@@ -185,8 +184,7 @@ async function loadRuns() {
       onclick: () => openRun(r.id) },
     el("div", { class: "co" }, el("span", {}, r.company), appliedBox(r)),
     el("div", { class: "meta" }, r.title),
-    el("div", { class: "meta" }, `${r.candidates} alumni · ${r.selected} selected`),
-    r.outreach.done ? el("div", { class: "done-note" }, outreachSummary(r.outreach)) : null,
+    el("div", { class: "meta" }, `Searched ${searchedOn(r.created_at)} · ${r.outreach.sent} ${r.outreach.sent === 1 ? "email" : "emails"} sent`),
   )));
   if (!runs.length) list.append(el("li", { class: "meta" }, "None yet."));
 }
@@ -204,6 +202,13 @@ function appliedBox(r) {
   const label = el("label", { class: "applied", title: "I've applied to this job" }, box, "Applied");
   label.onclick = e => e.stopPropagation();
   return label;
+}
+
+// "Oct 21", plus the year if it isn't this year. created_at is local time.
+function searchedOn(iso) {
+  const d = new Date(iso), opts = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
 }
 
 // Mirrors store.outreach_status() for the run on screen.
