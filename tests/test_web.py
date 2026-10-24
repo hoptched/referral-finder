@@ -289,6 +289,14 @@ def test_applied_checkbox(client, tmp_path):
     assert client.put("/api/runs/nope/applied", json={"applied": True}).status_code == 404
 
 
+def test_runs_listed_by_search_time_not_last_edit(client, tmp_path):
+    run = json.loads((tmp_path / "acme-1.json").read_text())
+    (tmp_path / "newer-2.json").write_text(json.dumps(run | {"created_at": "2099-01-01 00:00:00"}))
+    assert [r["id"] for r in client.get("/api/runs").json()] == ["newer-2", "acme-1"]
+    client.put("/api/runs/acme-1/applied", json={"applied": True})  # editing the older run doesn't move it up
+    assert [r["id"] for r in client.get("/api/runs").json()] == ["newer-2", "acme-1"]
+
+
 def test_queue_add_dedupe_remove(client, monkeypatch, tmp_path):
     monkeypatch.setattr(web, "QUEUE_PATH", tmp_path / "queue.json")
     monkeypatch.setattr(web, "_queue_items", None)

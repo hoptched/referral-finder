@@ -89,7 +89,7 @@ def outreach_status(run: dict) -> dict:
 
 def list_runs() -> list[dict]:
     runs = []
-    for path in sorted(RUNS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for path in RUNS_DIR.glob("*.json"):
         data = json.loads(path.read_text())
         runs.append({
             "id": path.stem,
@@ -103,7 +103,8 @@ def list_runs() -> list[dict]:
             "simplify_id": data.get("simplify_id"),
             "outreach": outreach_status(data),
         })
-    return runs
+    # Newest search first. Not file mtime: that changes on every edit (Applied, sends).
+    return sorted(runs, key=lambda r: str(r["created_at"]), reverse=True)
 
 
 # Every real send, across all runs, one JSON object per line. Used to never
