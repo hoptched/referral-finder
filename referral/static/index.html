@@ -404,7 +404,7 @@ function showLog() {
   const log = $("#log");
   log.hidden = false;
   log.replaceChildren(...i.log.map(line => el("div", { class: line.startsWith("⚠") ? "warning" : "" }, line)),
-                      i.error ? el("div", { class: "error" }, i.error) : null);
+                      ...(i.error ? [el("div", { class: "error" }, i.error)] : []));  // a null child would print "null"
 }
 
 // Mirrors store.outreach_status() for the run on screen.

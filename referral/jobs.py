@@ -79,12 +79,16 @@ def html_to_text(markup: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
-LEGAL_SUFFIX_RE = re.compile(r",?\s+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|gmbh)\.?$", re.I)
+LEGAL_SUFFIX_RE = re.compile(r",?\s+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|gmbh|n\.a)\.?$", re.I)
+# Workday company codes in front of the name: "00002 Citibank, N.A.", "C01 Carrier". Zero-padded
+# only, so names that start with a number ("3M", "100 Thieves") are left alone.
+CODE_PREFIX_RE = re.compile(r"^(?:0\d+|[A-Z]{1,3}0\d*)\s+(?=\S)")
 
 
 def clean_company(name: str) -> str:
-    """'Zillow Group, Inc.' -> 'Zillow Group' (LinkedIn company pages drop legal suffixes)."""
-    return LEGAL_SUFFIX_RE.sub("", name.strip()).strip()
+    """'Zillow Group, Inc.' -> 'Zillow Group' (LinkedIn company pages drop legal suffixes);
+    '00002 Citibank, N.A.' -> 'Citibank' (Workday company codes)."""
+    return LEGAL_SUFFIX_RE.sub("", CODE_PREFIX_RE.sub("", name.strip())).strip()
 
 
 def _slug_name(slug: str) -> str:

@@ -41,6 +41,9 @@ def test_clean_company():
     assert clean_company("Zillow Group, Inc.") == "Zillow Group"
     assert clean_company("Acme LLC") == "Acme"
     assert clean_company("Coinbase") == "Coinbase"
+    assert clean_company("00002 Citibank, N.A.") == "Citibank"
+    assert clean_company("C01 Carrier") == "Carrier"
+    assert clean_company("3M Company") == "3M Company" and clean_company("100 Thieves") == "100 Thieves"
 
 
 def test_html_to_text():
