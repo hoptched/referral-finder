@@ -29,7 +29,7 @@ The page has three columns: **Jobs to apply to**, **Past searches**, and the ope
    - **drafts emails only for people whose email was found** (Sonnet).
 
    Layout: **Send all emails (N)** at the top, then a card per person with an email (address and source badge, editable subject/body, Send / Test to me / Copy / Regenerate), then **No email found**: each person there has a profile link and a "Found their email? Add it" box that drafts their email.
-   - **Emails are scheduled, not sent right away.** **Send today/tomorrow 11:00 AM** on a card, or **Schedule all emails (N)** at the top, queues them for the next `email.send_time` (default 11:00 AM, `email.timezone` America/New_York). The site sends them at that time, 20–60 s apart, with your resume attached. Until then the card shows "Scheduled for …" with **Cancel** and **Send now**, and you can still edit the draft: the version saved at send time is what goes out. The sidebar shows "N scheduled". The site must be running then (see "Start it automatically"): if it was off, the emails go out when it starts, up to 3 hours late, and after that they move to the next day's send time. If a send fails (e.g. Gmail login expired), the card says why and it isn't retried; use **Send now** after fixing it. Each person can only be emailed once, across all searches, and can only be scheduled once.
+   - **Emails are scheduled, not sent right away.** **Send today/tomorrow 11:00 AM** on a card, or **Schedule all emails (N)** at the top, queues them for the next `email.send_time` (default 11:00 AM, `email.timezone` America/New_York). The site sends them at that time, 20–60 s apart, with your resume attached. Until then the card shows "Scheduled for …" with **Cancel** and **Send now**, and you can still edit the draft: the version saved at send time is what goes out. The sidebar shows "N scheduled". The site must be running then (see "Taskbar shortcut"): if it was off, the emails go out when it starts, up to 3 hours late, and after that they move to the next day's send time. If a send fails (e.g. Gmail login expired), the card says why and it isn't retried; use **Send now** after fixing it. Each person can only be emailed once, across all searches, and can only be scheduled once.
    - **Send now** sends one email immediately (after a confirmation); **Test to me** sends a `[TEST]` copy to your own Gmail.
 
 The top-right panel shows what's left and when it resets: **Email credits** (Hunter + Apollo as one pool; hover for the breakdown; Hunter's reset date comes from its API, Apollo's from `apollo.reset_day`), LinkedIn profile checks left today (resets at midnight), Claude spend this month (resets on the 1st), and the Gmail account. Items running low turn red. It refreshes after searches, outreach loads and sends (`GET /api/credits`).
@@ -144,33 +144,19 @@ This lists every requirement with ✓ / ✗ and how to fix each one (keys, confi
 
 Open http://localhost:8000. On WSL, open it in your normal Windows browser. **After pulling code changes, stop it (Ctrl+C) and start it again**; it doesn't reload on its own.
 
-### Start it automatically (Windows + WSL)
+### Taskbar shortcut (Windows + WSL)
 
-To have the site running whenever you're logged in to Windows (it also does the daily Instagram check and sends scheduled emails), create a scheduled task once. Paste this into **Windows PowerShell** (not the WSL terminal), changing `Ubuntu` and the folder if yours differ:
-
-```powershell
-$arg = '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ~/temp-scripts/referral-finder/scripts/run-web.sh"'
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
-$triggers = (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5))
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName "Referral Finder" -Action $action -Trigger $triggers -Settings $settings
-Start-ScheduledTask -TaskName "Referral Finder"
-```
-
-Already have the older task (it ran `refer web` directly)? Switch it over with:
+A **Referral Finder** shortcut starts the site in WSL (if it isn't running yet) and opens it in your browser. Create it once from **Windows PowerShell** (not the WSL terminal):
 
 ```powershell
-Set-ScheduledTask -TaskName "Referral Finder" -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ~/temp-scripts/referral-finder/scripts/run-web.sh"') -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5))
-Stop-ScheduledTask -TaskName "Referral Finder"; Start-ScheduledTask -TaskName "Referral Finder"
+powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\<you>\<path to>\referral-finder\scripts\windows\install-shortcut.ps1 -Distro Ubuntu -Folder "~/<path to>/referral-finder"
 ```
 
-- It runs hidden; open http://localhost:8000. Output goes to `.data/web.log`.
-- Two layers keep it up. `scripts/run-web.sh` restarts `refer web` 5 seconds after it exits, and logs the time and exit code (129 = hangup, 137 = killed, 143 = terminated). If the whole WSL session is killed (the task's result is then 0xC000013A), the task's 5-minute trigger starts it again; while it's running, those triggers do nothing.
-- No time limit (Windows otherwise stops tasks after 3 days).
-- **After code changes,** restart the site: `pkill -f "[.]venv/bin/refer web"` in WSL; the watchdog starts it again within seconds.
-- Don't also run `refer web` by hand while it's running (the port would be taken).
-- To remove it: `Unregister-ScheduledTask -TaskName "Referral Finder" -Confirm:$false`.
-- If registering says "Access is denied", open PowerShell with **Run as administrator** and try again.
+- This puts the shortcut on your Desktop and in the Start menu, plus a copy of `scripts/windows/start-referral-finder.ps1` in `%LOCALAPPDATA%\ReferralFinder` (Windows won't run scripts straight from a `\\wsl.localhost` path). Run it again after changing either script.
+- **Pin it:** right-click the Desktop shortcut → **Show more options** → **Pin to taskbar**. Don't pin the WSL window the site runs in: that pins a plain `wsl.exe`, which only opens a Linux prompt.
+- The site runs in a **minimized WSL window**. Close that window to stop the site. Clicking the shortcut while it's running just opens the page.
+- Scheduled emails and the daily Instagram check only happen while the site is running.
+- **After code changes,** close the WSL window and click the shortcut again.
 
 ### Troubleshooting
 
