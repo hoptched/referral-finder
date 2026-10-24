@@ -54,9 +54,9 @@ def _fake_claude(monkeypatch, jobs):
 def test_read_story_only_keeps_links_on_the_story(monkeypatch):
     _fake_claude(monkeypatch, [
         StoryJob(company="Acme", title="SWE Intern", link="https://acme.wd1.myworkdayjobs.com/job/1?utm_source=ig",
-                 locations=["NYC"], phd_only=False),
-        StoryJob(company="Made Up", title="Intern", link="https://invented.example.com", locations=[], phd_only=False),
-        StoryJob(company="No Link", title="Intern", link=None, locations=[], phd_only=False),
+                 locations=["NYC"], phd_only=False, internship=True, term=None),
+        StoryJob(company="Made Up", title="Intern", link="https://invented.example.com", locations=[], phd_only=False, internship=True, term=None),
+        StoryJob(company="No Link", title="Intern", link=None, locations=[], phd_only=False, internship=True, term=None),
     ])
     story = Story(id="9", account="zero2sudo", taken_at=100, links=["https://bit.ly/a"], image=b"jpg")
     jobs = asyncio.run(instagram.read_story(story, "claude-haiku-5-5"))
@@ -76,7 +76,8 @@ def test_check_reads_each_story_once(monkeypatch, ig_state):
     async def read_story(story, model):
         read.append(story.id)
         return [{"id": f"ig-{story.id}-0", "company": "Acme", "title": "SWE Intern", "url": "https://acme.com/1",
-                 "locations": [], "category": None, "posted": story.taken_at, "source": "zero2sudo", "phd_only": False}]
+                 "locations": [], "category": None, "posted": story.taken_at, "source": "zero2sudo", "phd_only": False,
+                 "internship": True, "term": None}]
 
     monkeypatch.setattr(instagram, "fetch_stories", fetch)
     monkeypatch.setattr(instagram, "read_story", read_story)
@@ -113,11 +114,14 @@ def test_jobs_endpoint_merges_story_jobs(monkeypatch, ig_state, tmp_path):
 
     monkeypatch.setattr(simplify, "listings", listings)
     story_job = lambda i, url, **kw: {"id": f"ig-{i}", "company": "B", "title": "Intern", "url": url, "locations": [],
-                                      "category": None, "posted": now, "source": "zero2sudo", "phd_only": False} | kw
+                                      "category": None, "posted": now, "source": "zero2sudo", "phd_only": False,
+                                      "internship": True, "term": "Summer 2027"} | kw
     instagram.save_state({"jobs": [story_job(1, "https://acme.com/1"), story_job(2, "https://b.com/2"),
                                    story_job(3, "https://c.com/3", phd_only=True),
                                    story_job(4, "https://d.com/4", locations=["London, UK"]),
-                                   story_job(5, "https://e.com/5", posted=now - 30 * 86400)],
+                                   story_job(5, "https://e.com/5", posted=now - 30 * 86400),
+                                   story_job(6, "https://f.com/6", internship=False),
+                                   story_job(7, "https://g.com/7", term="Fall 2026")],
                           "last_success": "2026-10-22T09:00:00", "error": None, "seen": {}})
     out = TestClient(web.app).get("/api/jobs").json()
     assert [(j["id"], j.get("also")) for j in out["jobs"]] == [("ig-2", None), ("s1", ["zero2sudo"])]

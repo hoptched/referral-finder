@@ -226,6 +226,8 @@ class StoryJob(BaseModel):
     link: Optional[str]  # one of the story's links that leads to this job, else None
     locations: list[str]  # as shown, e.g. ["Seattle, WA"]; empty if not shown
     phd_only: bool  # the story says it's only for PhD students
+    internship: bool  # an internship or co-op (not new-grad / full-time)
+    term: Optional[str]  # e.g. "Summer 2027" if the story says, else None
 
 
 class StoryJobs(BaseModel):
@@ -237,7 +239,8 @@ Links attached to the story (link stickers), with where each one ends up:
 {links}
 
 List each job opening the story advertises. For each: company, role title, locations if shown,
-whether it's only for PhD students, and `link`: the link above (copy its final URL exactly) that
+whether it's only for PhD students, whether it's an internship or co-op (false for new-grad or
+full-time roles), the term if shown (written like "Summer 2027", else null), and `link`: the link above (copy its final URL exactly) that
 leads to that job or its application, or null if none does. Don't list things that aren't job
 openings (courses, books, giveaways, sponsors, the creator's own content). If the story isn't
 about a job opening, return an empty list."""
@@ -276,7 +279,8 @@ async def read_story(story: Story, model: str) -> list[dict]:
             continue
         jobs.append({"id": f"ig-{story.id}-{i}", "company": job.company, "title": job.title,
                      "url": clean_url(allowed[job.link]), "locations": job.locations, "category": None,
-                     "posted": story.taken_at, "source": story.account, "phd_only": job.phd_only})
+                     "posted": story.taken_at, "source": story.account, "phd_only": job.phd_only,
+                     "internship": job.internship, "term": job.term})
     return jobs
 
 
@@ -290,13 +294,15 @@ def load_state() -> dict:
 
 
 def visible_jobs(cfg: dict) -> list[dict]:
-    """Saved story jobs that pass the same filters as the Simplify list (age, US, PhD)."""
+    """Saved story jobs that pass the same filters as the Simplify list (age, US, PhD), and with
+    internships_only, only internships whose term (when the story gives one) is a configured term."""
     from referral.simplify import in_us, settings as list_settings
 
     s = list_settings(cfg)
     oldest = time.time() - s["max_age_days"] * 86400
     return [j for j in load_state()["jobs"]
             if j["posted"] >= oldest and not (s["exclude_phd"] and j.get("phd_only"))
+            and not (s["internships_only"] and not (j.get("internship") and j.get("term") in {None, *s["terms"]}))
             and not (s["us_only"] and j["locations"] and not any(in_us(l) for l in j["locations"]))]
 
 

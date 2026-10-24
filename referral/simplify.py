@@ -23,6 +23,7 @@ DEFAULTS = {
     "us_only": True,  # drop jobs with no location in the United States
     "exclude_phd": True,  # drop jobs only open to PhD students
     "max_age_days": 10,  # drop jobs posted longer ago than this
+    "internships_only": True,  # drop new-grad / full-time roles (and story jobs for other terms)
 }
 
 US_STATES = {
@@ -56,6 +57,12 @@ def phd_only(listing: dict) -> bool:
     return degrees == {"PhD"} or bool(re.search(r"\bph\.?\s?d\b", listing.get("title", ""), re.I))
 
 
+def new_grad(title: str) -> bool:
+    """A new-grad or full-time role rather than an internship or co-op."""
+    return bool(re.search(r"new[- ]?grad|full[- ]time|entry[- ]level|university grad", title, re.I)) \
+        and not re.search(r"\bintern|co-?op", title, re.I)
+
+
 def settings(cfg: dict) -> dict:
     return {**DEFAULTS, **(cfg.get("simplify") or {})}
 
@@ -83,6 +90,7 @@ def trim(listings: list[dict], s: dict) -> list[dict]:
         and terms & set(x.get("terms") or []) and x.get("category") in categories
         and (x.get("date_posted") or x.get("date_updated") or 0) >= oldest
         and not (s["exclude_phd"] and phd_only(x))
+        and not (s["internships_only"] and new_grad(x["title"]))
         # No location at all: kept, since there's nothing to judge by.
         and not (s["us_only"] and x.get("locations") and not any(in_us(l) for l in x["locations"]))]
     return sorted(jobs, key=lambda j: j["posted"], reverse=True)

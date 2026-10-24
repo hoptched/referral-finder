@@ -61,6 +61,7 @@ simplify:
   us_only: true      # hide jobs with no location in the United States
   exclude_phd: true  # hide jobs only open to PhD students (PhD is the only degree listed, or "PhD" in the title)
   max_age_days: 10   # hide jobs posted more than this many days ago
+  internships_only: true  # hide new-grad / full-time roles; story jobs must also match `terms` (when the story names one)
 
 # Jobs from Instagram stories, added to "Jobs to apply to" (needs `refer ig-login`
 # with a spare account; see README). Checked once a day while `refer web` is open,

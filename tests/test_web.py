@@ -357,8 +357,10 @@ def test_simplify_trim():
     rows = [base | {"id": "ok"}, base | {"id": "new", "date_posted": time.time()},
             base | {"id": "stale", "date_posted": time.time() - 11 * 86400}, base | {"id": "closed", "active": False},
             base | {"id": "hidden", "is_visible": False}, base | {"id": "fall", "terms": ["Fall 2026"]},
-            base | {"id": "hw", "category": "Hardware"}]
-    assert [j["id"] for j in trim(rows, DEFAULTS)] == ["new", "ok"]
+            base | {"id": "hw", "category": "Hardware"}, base | {"id": "ng", "title": "Software Engineer, New Grad"},
+            base | {"id": "ft", "title": "Full-Time Software Engineer"},
+            base | {"id": "intern", "title": "Early Career SWE Intern (Entry Level)"}]
+    assert [j["id"] for j in trim(rows, DEFAULTS)] == ["new", "ok", "intern"]
 
 
 def test_simplify_us_and_phd_filters():
