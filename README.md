@@ -146,20 +146,28 @@ Open http://localhost:8000. On WSL, open it in your normal Windows browser. **Af
 
 ### Start it automatically (Windows + WSL)
 
-To have the site running whenever you're logged in to Windows (it also does the daily Instagram check), create a scheduled task once. Paste this into **Windows PowerShell** (not the WSL terminal), changing `Ubuntu` and the folder if yours differ:
+To have the site running whenever you're logged in to Windows (it also does the daily Instagram check and sends scheduled emails), create a scheduled task once. Paste this into **Windows PowerShell** (not the WSL terminal), changing `Ubuntu` and the folder if yours differ:
 
 ```powershell
-$arg = '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ''cd ~/temp-scripts/referral-finder && exec .venv/bin/refer web >> .data/web.log 2>&1''"'
+$arg = '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ~/temp-scripts/referral-finder/scripts/run-web.sh"'
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName "Referral Finder" -Action $action -Trigger $trigger -Settings $settings
+$triggers = (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5))
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Referral Finder" -Action $action -Trigger $triggers -Settings $settings
 Start-ScheduledTask -TaskName "Referral Finder"
 ```
 
+Already have the older task (it ran `refer web` directly)? Switch it over with:
+
+```powershell
+Set-ScheduledTask -TaskName "Referral Finder" -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -WindowStyle Hidden -Command "wsl.exe -d Ubuntu -e bash -lc ~/temp-scripts/referral-finder/scripts/run-web.sh"') -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5))
+Stop-ScheduledTask -TaskName "Referral Finder"; Start-ScheduledTask -TaskName "Referral Finder"
+```
+
 - It runs hidden; open http://localhost:8000. Output goes to `.data/web.log`.
-- No time limit (Windows otherwise stops tasks after 3 days), and it restarts up to 3 times if it crashes.
-- **After code changes,** restart it: `Stop-ScheduledTask -TaskName "Referral Finder"; Start-ScheduledTask -TaskName "Referral Finder"`.
+- Two layers keep it up. `scripts/run-web.sh` restarts `refer web` 5 seconds after it exits, and logs the time and exit code (129 = hangup, 137 = killed, 143 = terminated). If the whole WSL session is killed (the task's result is then 0xC000013A), the task's 5-minute trigger starts it again; while it's running, those triggers do nothing.
+- No time limit (Windows otherwise stops tasks after 3 days).
+- **After code changes,** restart the site: `pkill -f "[.]venv/bin/refer web"` in WSL; the watchdog starts it again within seconds.
 - Don't also run `refer web` by hand while it's running (the port would be taken).
 - To remove it: `Unregister-ScheduledTask -TaskName "Referral Finder" -Confirm:$false`.
 - If registering says "Access is denied", open PowerShell with **Run as administrator** and try again.
