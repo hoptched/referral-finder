@@ -79,16 +79,32 @@ def html_to_text(markup: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
-LEGAL_SUFFIX_RE = re.compile(r",?\s+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|gmbh|n\.a)\.?$", re.I)
-# Workday company codes in front of the name: "00002 Citibank, N.A.", "C01 Carrier". Zero-padded
-# only, so names that start with a number ("3M", "100 Thieves") are left alone.
-CODE_PREFIX_RE = re.compile(r"^(?:0\d+|[A-Z]{1,3}0\d*)\s+(?=\S)")
+LEGAL_SUFFIX_RE = re.compile(r",?\s+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|gmbh|n\.\s?a|s\.\s?i)\.?$", re.I)
+# Workday company codes in front of the name: "00002 Citibank, N.A.", "C01 Carrier", "B10 Wells
+# Fargo Bank, N. A.". Zero-padded numbers or letters + 2+ digits only, so names that start with
+# a number ("3M", "100 Thieves") are left alone.
+CODE_PREFIX_RE = re.compile(r"^(?:0\d+|\d{4,}|[A-Z]{1,3}\d{2,})\s+(?=\S)")
+
+
+def _strip_initials_code(name: str) -> str:
+    """'AFMIC American Family Mutual Insurance Company' -> drop 'AFMIC': a leading all-caps word
+    that is exactly the initials of the words after it is a Workday code, not part of the name
+    (so 'IBM' or 'PTC' alone are kept)."""
+    first, _, rest = name.partition(" ")
+    words = rest.split()
+    if first.isalpha() and first.isupper() and len(first) >= 3 and len(words) >= len(first):
+        if "".join(w[0] for w in words[: len(first)]).upper() == first:
+            return rest
+    return name
 
 
 def clean_company(name: str) -> str:
     """'Zillow Group, Inc.' -> 'Zillow Group' (LinkedIn company pages drop legal suffixes);
-    '00002 Citibank, N.A.' -> 'Citibank' (Workday company codes)."""
-    return LEGAL_SUFFIX_RE.sub("", CODE_PREFIX_RE.sub("", name.strip())).strip()
+    '00002 Citibank, N.A.' / '9025 CVS ...' / 'AFMIC American Family ...' -> no Workday code."""
+    name = _strip_initials_code(CODE_PREFIX_RE.sub("", name.strip()))
+    for _ in range(2):  # stacked suffixes: "Company, LLC"
+        name = LEGAL_SUFFIX_RE.sub("", name).strip()
+    return name
 
 
 def _slug_name(slug: str) -> str:

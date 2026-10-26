@@ -170,3 +170,28 @@ def test_resolve_skips_pages_without_employee_list(monkeypatch, tmp_path):
     monkeypatch.setattr(search, "everyday_name", name)
     company = asyncio.run(search.resolve_company(None, "Allstate Insurance", model="m"))
     assert company.linkedin_url == "https://www.linkedin.com/company/allstate/" and company.ids == ["1", "2"]
+
+
+def test_rate_limit_check_ignores_profile_content():
+    import pytest
+    from linkedin_scraper import RateLimitError
+
+    from referral.linkedin import detect_rate_limit
+
+    async def check(body, status=None):
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
+            await page.set_content(f"<main>{body}</main>")
+            try:
+                await detect_rate_limit(page, status)
+            finally:
+                await browser.close()
+
+    # A real profile describing rate limiting: long page, not a LinkedIn limit.
+    profile = "Software Engineer at Wells Fargo. Implemented Rate Limiting across the API suite. " + "Details. " * 300
+    asyncio.run(check(profile))
+    with pytest.raises(RateLimitError):  # LinkedIn's short error page
+        asyncio.run(check("Too many requests. Please try again later."))
+    with pytest.raises(RateLimitError):  # blocked by status, whatever the text
+        asyncio.run(check(profile, status=999))

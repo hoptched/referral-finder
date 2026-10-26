@@ -73,8 +73,8 @@ def _trim(text: str) -> str:
 
 
 async def _section_text(page: Page, url: str) -> str:
-    await page.goto(url, wait_until="domcontentloaded")
-    await detect_rate_limit(page)
+    response = await page.goto(url, wait_until="domcontentloaded")
+    await detect_rate_limit(page, response.status if response else None)
     await page.locator("main").wait_for(timeout=15_000)
     await page.wait_for_timeout(2_000)  # sections hydrate after DOMContentLoaded
     return _trim(await page.locator("main").inner_text())

@@ -74,3 +74,16 @@ def test_clean_url_keeps_job_ids():
     assert clean_url(ibm) == "https://careers.ibm.com/en_US/careers/JobDetail?jobId=137753"
     assert clean_url("https://boards.greenhouse.io/acme?gh_jid=123&gh_src=abc") == "https://boards.greenhouse.io/acme?gh_jid=123"
     assert clean_url("https://x.com/job/1?utm_medium=a&ref=Simplify&src=Simplify") == "https://x.com/job/1"
+
+
+def test_clean_company_workday_codes():
+    from referral.jobs import clean_company
+
+    assert clean_company("B10 Wells Fargo Bank, N. A.") == "Wells Fargo Bank"
+    assert clean_company("00002 Citibank, N.A.") == "Citibank"
+    assert clean_company("C01 Carrier") == "Carrier"
+    assert clean_company("3M") == "3M" and clean_company("100 Thieves") == "100 Thieves"
+    assert clean_company("9025 CVS Shared Services Resources") == "CVS Shared Services Resources"
+    assert clean_company("AFMIC American Family Mutual Insurance Company, S.I.") == "American Family Mutual Insurance Company"
+    assert clean_company("Westinghouse Electric Company, LLC") == "Westinghouse Electric Company"
+    assert clean_company("IBM") == "IBM" and clean_company("PTC") == "PTC" and clean_company("GE Aerospace") == "GE Aerospace"

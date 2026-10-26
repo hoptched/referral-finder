@@ -11,16 +11,24 @@ from playwright.async_api import Page
 LOGIN_TIMEOUT_MS = 300_000
 
 RATE_LIMIT_PHRASES = ("too many requests", "rate limit", "slow down", "try again later")
+# LinkedIn's limit/error pages are short. Real profiles and search results are long, and
+# can contain the phrases as ordinary content ("Implemented Rate Limiting across ..."),
+# so phrases only count on pages shorter than this many visible characters.
+ERROR_PAGE_MAX_CHARS = 1500
+BLOCKED_STATUSES = {429, 999}  # 999 = LinkedIn's bot block
 
 
-async def detect_rate_limit(page: Page) -> None:
+async def detect_rate_limit(page: Page, status: int | None = None) -> None:
     """Replacement for linkedin_scraper's detect_rate_limit.
 
     Upstream matches phrases against body.text_content(), which includes
     inline <script> JSON. LinkedIn profiles embed a hidden "Something went
     wrong. Please try again later." string there, so every profile scrape
-    falsely raised. This version only checks visible text (inner_text).
+    falsely raised. This version checks the HTTP status, checkpoint/CAPTCHA,
+    and the phrases only in the visible text of short (error-sized) pages.
     """
+    if status in BLOCKED_STATUSES:
+        raise RateLimitError(f"LinkedIn refused the page (HTTP {status}).", suggested_wait_time=3600)
     if "linkedin.com/checkpoint" in page.url or "authwall" in page.url:
         raise RateLimitError("LinkedIn security checkpoint detected.", suggested_wait_time=3600)
     if await page.locator('iframe[title*="captcha" i], iframe[src*="captcha" i]').count():
@@ -29,7 +37,7 @@ async def detect_rate_limit(page: Page) -> None:
         visible = (await page.locator("body").inner_text(timeout=1000)).lower()
     except Exception:
         return
-    if any(p in visible for p in RATE_LIMIT_PHRASES):
+    if len(visible) < ERROR_PAGE_MAX_CHARS and any(p in visible for p in RATE_LIMIT_PHRASES):
         raise RateLimitError("Rate limit message detected on page.", suggested_wait_time=1800)
 
 
