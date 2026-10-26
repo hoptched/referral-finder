@@ -79,3 +79,43 @@ def test_card_year_for_other_schools():
     assert school_short("Cornell University") == "Cornell"
     assert card_year_re("University of Michigan").search("SWE @ Google | Michigan '23").group(1) == "23"
     assert card_year_re("Cornell University").search("SWE | Michigan '23") is None
+
+
+def _edu(degree, school="Cornell University", end=2022):
+    return Education(school=school, degree=degree, field_of_study=None, start_year=None, end_year=end)
+
+
+def test_degree_levels():
+    from referral.rank import degree_level
+
+    for d in ["Bachelor of Science - BS", "Bachelor's degree", "BA", "B.S.", "Bachelor of Engineering - BE"]:
+        assert degree_level(_edu(d)) == "undergrad", d
+    for d in ["Master of Engineering - MEng", "Master's degree", "M.Eng", "M.S.", "Master of Business Administration - MBA",
+              "Master of Professional Studies"]:
+        assert degree_level(_edu(d)) == "masters", d
+    assert degree_level(_edu("Doctor of Philosophy - PhD")) == "phd"
+    for d in ["Certificate", "Data Analytics Certificate", "Change Management Certification", "Summer Program",
+              "Corporate Communication Certificate, eCornell"]:
+        assert degree_level(_edu(d)) == "certificate", d
+    assert degree_level(_edu(None)) == "unknown"
+
+
+def _profile_with(*educations):
+    return Profile(linkedin_url="https://www.linkedin.com/in/x/", name="X", educations=list(educations),
+                   experiences=[Experience(title="Software Engineer", company="LinkedIn", employment_type=None,
+                                           start="2023", end=None, is_current=True, location=None, description=None)])
+
+
+def test_undergrad_beats_masters_and_certificate_is_penalized():
+    def scored(*educations):
+        c = score_card(result("Software Engineer at LinkedIn", "Software Engineer at LinkedIn since 2023."), ROLES, None, SCHOOL)
+        return apply_profile(c, _profile_with(*educations), SCHOOL, "LinkedIn")
+
+    undergrad = scored(_edu("Bachelor of Science - BS"))
+    masters = scored(_edu("Master of Engineering - MEng"))
+    cert = scored(_edu("Data Analytics Certificate"))
+    both = scored(_edu("Data Analytics Certificate", end=2025), _edu("Bachelor of Arts - BA", end=2019))
+    assert undergrad.degree == "undergrad" and masters.degree == "masters" and cert.degree == "certificate"
+    assert undergrad.score > masters.score > cert.score
+    assert masters.score - cert.score == 9  # master's +1 vs certificate -8
+    assert both.degree == "undergrad" and both.grad_year == 2019  # best level wins; year from the real degree

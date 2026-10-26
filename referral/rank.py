@@ -43,6 +43,7 @@ class Candidate(BaseModel):
     grad_year: Optional[int] = None
     seniority: Optional[str] = None
     verified: Optional[bool] = None  # None = profile not scraped
+    degree: Optional[str] = None  # best degree at the school: undergrad | masters | phd | unknown | certificate
     profile: Optional[Profile] = None
 
 
@@ -108,6 +109,32 @@ def company_matches(posting_company: str, profile_company: str) -> bool:
     return any(n in theirs or theirs in n for n in (q.lower() for q in company_queries(posting_company)))
 
 
+# Degree levels at your school, best first, with their points. Undergrad alumni are the
+# strongest connection; a certificate (or summer/online program) is barely one, so it's
+# penalized almost as much as not having the school at all.
+DEGREE_POINTS = {"undergrad": 3, "masters": 1, "phd": 0, "unknown": 0, "certificate": -8}
+DEGREE_LABELS = {"undergrad": "undergrad", "masters": "master's", "phd": "PhD", "unknown": "degree not listed",
+                 "certificate": "certificate only"}
+_CERTIFICATE_RE = re.compile(r"certific|executive ed|summer|exchange|visiting|non-?degree|online|nanodegree|"
+                             r"\becornell\b", re.I)
+_PHD_RE = re.compile(r"\bph\.?\s?d\b|doctor", re.I)
+_MASTERS_RE = re.compile(r"master|\bm\.?\s?(s|eng|a|sc|ps|pa|ph|fa|ba)\b\.?|\bmeng\b|\bmba\b|\bmps\b|\bllm\b", re.I)
+_UNDERGRAD_RE = re.compile(r"bachelor|undergrad|\bb\.?\s?(s|a|sc|e|eng|fa|se)\b\.?|\ba\.?b\.?(?=\s|$)|\bbs\b|\bba\b", re.I)
+
+
+def degree_level(education) -> str:
+    text = f"{education.degree or ''} | {education.field_of_study or ''}"
+    if _CERTIFICATE_RE.search(f"{text} | {education.school}"):
+        return "certificate"
+    if _PHD_RE.search(text):
+        return "phd"
+    if _MASTERS_RE.search(text):
+        return "masters"
+    if _UNDERGRAD_RE.search(text):
+        return "undergrad"
+    return "unknown"
+
+
 def apply_profile(c: Candidate, profile: Profile, school: str, company: str) -> Candidate:
     """Refine a card score with the scraped profile."""
     c.profile = profile
@@ -119,7 +146,16 @@ def apply_profile(c: Candidate, profile: Profile, school: str, company: str) -> 
         c.reasons.append(f"-10 no {school} on profile")
         return c
 
-    years = [e.end_year for e in schools if e.end_year]
+    levels = {id(e): degree_level(e) for e in schools}
+    c.degree = min(levels.values(), key=list(DEGREE_POINTS).index)  # best level wins
+    points = DEGREE_POINTS[c.degree]
+    if points:
+        c.score += points
+        c.reasons.append(f"{points:+d} {DEGREE_LABELS[c.degree]}")
+
+    # Class year from real degrees, not from a certificate taken later.
+    degrees = [e for e in schools if levels[id(e)] != "certificate"] or schools
+    years = [e.end_year for e in degrees if e.end_year]
     if years and c.grad_year is None:
         c.grad_year = max(years)
         c.reasons.append("{:+d} {}".format(*recency_points(c.grad_year)))

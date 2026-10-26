@@ -289,6 +289,7 @@ LinkedIn's summary line sometimes says "You both *worked at* <school>" rather th
 
 **Profile pass** (top `profiles_to_verify` only):
 - No entry for your school in their education: −10, marked ✗.
+- **Degree at your school** (the best one if they list several): undergrad **+3**, master's **+1**, PhD or degree not listed 0, **certificate or non-degree program only** ("Certificate", "…Certification", "Summer Program", eCornell, executive education) **−8**, shown as an amber "certificate only" badge. Cards show the level next to the class year.
 - Graduation year taken from that school entry's `end_year` if the card didn't show one.
 - No current role at the company: −5.
 
